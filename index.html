@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ICP Reporter</title>
-<meta name="theme-color" content="#3d5f1f">
+<meta name="theme-color" content="#0f4c81">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -464,11 +464,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </script>
 <style>
   :root{
-    --green:#4f7a28; --green-d:#3d5f1f; --gray:#f2f2f2; --border:#bcbcbc;
-    --blue:#2f6db5; --text:#222;
+    /* blue/gray lab palette (var names kept for compatibility) */
+    --green:#1a6cb0; --green-d:#0f4c81; --gray:#f2f4f6; --border:#c2c8cf;
+    --blue:#1a6cb0; --text:#20242a;
   }
   *{box-sizing:border-box}
-  body{font-family:Arial,Helvetica,sans-serif;color:var(--text);margin:0;background:#e9ecef}
+  body{font-family:Arial,Helvetica,sans-serif;color:var(--text);margin:0;background:#eef1f4}
   /* ---------- Control panel (screen only) ---------- */
   #panel{background:#fff;border-bottom:3px solid var(--green);padding:18px 24px;
          position:sticky;top:0;z-index:50;box-shadow:0 2px 6px rgba(0,0,0,.1)}
@@ -479,28 +480,28 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .fld label{font-weight:bold;color:#444}
   .fld input,.fld select{padding:6px 8px;border:1px solid #aaa;border-radius:4px;font-size:13px;min-width:170px}
   .drop{border:2px dashed var(--green);border-radius:8px;padding:14px 22px;text-align:center;
-        cursor:pointer;color:var(--green-d);background:#f6faf2;font-size:14px}
-  .drop:hover{background:#eef6e6}
+        cursor:pointer;color:var(--green-d);background:#f2f6fb;font-size:14px}
+  .drop:hover{background:#e9f1f8}
   .modes{display:flex;gap:14px}
   .modes label{font-weight:normal;display:flex;gap:5px;align-items:center;cursor:pointer}
-  button.act{background:var(--green);color:#fff;border:0;border-radius:5px;padding:9px 16px;
+  button.act{background:var(--green);color:#fff;border:0;border-radius:3px;padding:7px 13px;
              font-size:13px;cursor:pointer;font-weight:bold}
   button.act:hover{background:var(--green-d)}
   button.sec{background:#fff;color:var(--green-d);border:1px solid var(--green)}
-  button.sec:hover{background:#f0f6e9}
+  button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
   #toolbar{margin-top:14px;display:none;gap:10px;flex-wrap:wrap}
   /* ---------- Reports ---------- */
   #reports{padding:24px;display:flex;flex-direction:column;align-items:center;gap:28px}
   .report{background:#fff;width:8.5in;min-height:11in;padding:0.7in 0.75in;
           box-shadow:0 2px 10px rgba(0,0,0,.18);position:relative}
-  .report:focus{outline:2px solid #4f7a28;outline-offset:3px}
+  .report:focus{outline:2px solid #1a6cb0;outline-offset:3px}
   .report-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
   .rep-tools{display:flex;gap:8px;width:8.5in;align-items:center}
-  .rep-tools .name{font-weight:bold;color:#3d5f1f;font-size:13px;margin-right:auto}
-  .rep-tools button{font-size:12px;padding:5px 11px;border:1px solid #4f7a28;background:#fff;
-                    color:#3d5f1f;border-radius:4px;cursor:pointer}
-  .rep-tools button:hover{background:#f0f6e9}
+  .rep-tools .name{font-weight:bold;color:#0f4c81;font-size:13px;margin-right:auto}
+  .rep-tools button{font-size:12px;padding:4px 10px;border:1px solid #1a6cb0;background:#fff;
+                    color:#0f4c81;border-radius:3px;cursor:pointer}
+  .rep-tools button:hover{background:#e9f1f8}
   .rep-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
   .rep-logo{font-size:26px;font-weight:bold;color:var(--blue);letter-spacing:-.5px}
   .rep-logo .ag{color:var(--green)}
@@ -521,8 +522,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .pb{page-break-before:always}
   .dl-item{display:block;width:100%;text-align:left;border:0;background:#fff;padding:9px 14px;
            font-size:13px;cursor:pointer;color:#333}
-  .dl-item:hover{background:#f0f6e9}
-  .lockbtn{position:absolute;top:10px;right:12px;background:rgba(120,120,120,.16);border:0;
+  .dl-item:hover{background:#e9f1f8}
+  .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
+  .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
+  #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
+          box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:12px;max-height:260px;overflow:auto;min-width:150px}
+  #wlMenu button{display:block;width:100%;text-align:left;border:0;background:#fff;padding:6px 12px;cursor:pointer;font-size:12px}
+  #wlMenu button:hover{background:#e9f1f8}
+  @media print{ .wlcell{border-bottom:0} }
+  .lockbtn{position:absolute;top:10px;right:12px;background:rgba(90,107,123,.16);border:0;
            border-radius:6px;padding:3px 8px;font-size:17px;cursor:pointer;line-height:1;opacity:.45}
   .lockbtn:hover{opacity:.8}
   @media print{
@@ -545,12 +553,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <img id="panelLogo" alt="ExcelAg Corp. USA" style="height:46px">
     <div>
       <h1 style="margin:0">ICP Reporter</h1>
-      <div class="sub" style="margin:0">Drag in the raw ICP-OES Excel export — reports are built automatically for every sample.</div>
     </div>
-    <span id="userBadge" style="margin-left:auto;font-size:13px;color:#3d5f1f;font-weight:bold"></span>
+    <span id="userBadge" style="margin-left:auto;font-size:13px;color:#0f4c81;font-weight:bold"></span>
     <button class="act sec" onclick="openCatalog()">📋 Sample Types</button>
     <button class="act sec admin-only" onclick="openMaster()">📝 Master Template</button>
     <button class="act sec admin-only" onclick="openUsers()">👤 Users</button>
+    <button class="act sec" onclick="openBug()">🐞 Report a bug</button>
     <button class="act sec" onclick="logout()">⎋ Log out</button>
   </div>
   <div class="row">
@@ -598,18 +606,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div style="background:#fff;max-width:880px;margin:0 auto;border-radius:8px;padding:22px 26px;
        box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;margin-bottom:6px">
-      <h2 style="margin:0;color:#3d5f1f">Sample Types &amp; Label Claims</h2>
+      <h2 style="margin:0;color:#0f4c81">Sample Types &amp; Label Claims</h2>
       <button class="act sec" style="margin-left:auto" onclick="closeCatalog()">✕ Close</button>
     </div>
     <div id="catalogList" style="font-size:13px"></div>
     <hr style="margin:18px 0;border:none;border-top:1px solid #ddd">
-    <h3 style="margin:0 0 10px;color:#3d5f1f" id="addTitle">Add new sample type</h3>
+    <h3 style="margin:0 0 10px;color:#0f4c81" id="addTitle">Add new sample type</h3>
     <div id="addForm"></div>
   </div>
 </div>
 
 <button id="logBtn" onclick="openLog()" style="position:fixed;left:14px;bottom:14px;z-index:150;
-    background:#3d5f1f;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:13px;
+    background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:13px;
     cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)">📋 Activity Log</button>
 <div id="verTag" style="position:fixed;right:10px;bottom:8px;font-size:11px;color:#9aa6ad;z-index:140"></div>
 
@@ -618,7 +626,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div style="background:#fff;max-width:920px;margin:0 auto;border-radius:8px;padding:22px 26px;
        box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <h2 style="margin:0;color:#3d5f1f">Activity Log</h2>
+      <h2 style="margin:0;color:#0f4c81">Activity Log</h2>
       <span id="logCount" style="font-size:12px;color:#777"></span>
       <button class="act sec" style="margin-left:auto" onclick="closeLog()">✕ Close</button>
     </div>
@@ -633,11 +641,41 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<div id="loginModal" style="display:none;position:fixed;inset:0;background:#2b3a1a;z-index:400;overflow:auto">
+<div id="bugModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:230;overflow:auto;padding:30px">
+  <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0;color:#0f4c81">🐞 Report a bug</h2>
+      <button class="act sec" style="margin-left:auto" onclick="closeBug()">✕ Close</button>
+    </div>
+    <div style="font-size:13px;color:#666;margin-bottom:10px">Describe what happened. Your current session's activity log is automatically included to help diagnose the issue.</div>
+    <textarea id="bugText" placeholder="What were you doing? What went wrong? What did you expect?"
+       style="width:100%;height:130px;padding:9px;border:1px solid #aaa;border-radius:5px;font-size:13px;resize:vertical"></textarea>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button class="act" onclick="submitBug()">Send report</button>
+      <span id="bugMsg" style="font-size:13px;color:#0f4c81"></span>
+    </div>
+  </div>
+</div>
+
+<div id="licModal" style="display:none;position:fixed;inset:0;background:#17222e;z-index:500;overflow:auto">
+  <div style="background:#fff;max-width:460px;margin:10vh auto;border-radius:10px;padding:28px 30px;
+       box-shadow:0 8px 40px rgba(0,0,0,.4);text-align:center">
+    <img id="licLogo" alt="ICP Reporter" style="height:54px;margin-bottom:12px">
+    <h2 style="margin:0 0 4px;color:#0f4c81">Activate ICP Reporter</h2>
+    <div style="color:#888;font-size:13px;margin-bottom:16px">Enter your license key to unlock the software.</div>
+    <textarea id="licInput" placeholder="Paste your license key here"
+       style="width:100%;height:88px;padding:9px;border:1px solid #aaa;border-radius:5px;font-family:monospace;font-size:12px;resize:vertical"></textarea>
+    <button class="act" style="width:100%;padding:10px;margin-top:10px" onclick="activateLicense()">Activate</button>
+    <div id="licErr" style="color:#c0392b;font-size:13px;margin-top:10px;min-height:16px"></div>
+    <div style="color:#aaa;font-size:11px;margin-top:14px">Need a key or renewal? Contact your provider.</div>
+  </div>
+</div>
+
+<div id="loginModal" style="display:none;position:fixed;inset:0;background:#223447;z-index:400;overflow:auto">
   <div style="background:#fff;max-width:360px;margin:12vh auto;border-radius:10px;padding:28px 30px;
        box-shadow:0 8px 40px rgba(0,0,0,.4);text-align:center">
     <img id="loginLogo" alt="ExcelAg" style="height:54px;margin-bottom:14px">
-    <h2 style="margin:0 0 4px;color:#3d5f1f">ICP Reporter</h2>
+    <h2 style="margin:0 0 4px;color:#0f4c81">ICP Reporter</h2>
     <div id="appVer" style="color:#aaa;font-size:11px;margin-bottom:2px"></div>
     <div style="color:#888;font-size:13px;margin-bottom:18px">Please sign in to continue</div>
     <input id="loginUser" placeholder="Username" style="width:100%;padding:9px;margin-bottom:9px;border:1px solid #aaa;border-radius:5px"
@@ -646,13 +684,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
        onkeydown="if(event.key==='Enter')doLogin()">
     <button class="act" style="width:100%;padding:10px" onclick="doLogin()">Sign in</button>
     <div id="loginErr" style="color:#c0392b;font-size:13px;margin-top:10px;min-height:16px"></div>
+    <div id="licInfo" style="color:#9aa6ad;font-size:11px;margin-top:14px"></div>
   </div>
 </div>
 
 <div id="authModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:420;overflow:auto">
   <div style="background:#fff;max-width:380px;margin:18vh auto;border-radius:10px;padding:22px 26px;
        box-shadow:0 8px 40px rgba(0,0,0,.4)">
-    <h3 style="margin:0 0 6px;color:#3d5f1f">🔒 Confirm your password</h3>
+    <h3 style="margin:0 0 6px;color:#0f4c81">🔒 Confirm your password</h3>
     <div style="font-size:13px;color:#666;margin-bottom:12px">This change requires re-authentication: <b id="authLabel"></b></div>
     <input id="authPass" type="password" placeholder="Password" style="width:100%;padding:9px;margin-bottom:12px;border:1px solid #aaa;border-radius:5px"
        onkeydown="if(event.key==='Enter')submitAuth()">
@@ -667,12 +706,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <div id="usersModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:410;overflow:auto;padding:30px">
   <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;margin-bottom:10px">
-      <h2 style="margin:0;color:#3d5f1f">Users</h2>
+      <h2 style="margin:0;color:#0f4c81">Users</h2>
       <button class="act sec" style="margin-left:auto" onclick="closeUsers()">✕ Close</button>
     </div>
     <div id="usersList" style="font-size:13px;margin-bottom:14px"></div>
     <hr style="border:none;border-top:1px solid #ddd;margin:10px 0">
-    <h3 style="margin:0 0 8px;color:#3d5f1f">Add user</h3>
+    <h3 style="margin:0 0 8px;color:#0f4c81">Add user</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <input id="newUser" placeholder="Username" style="flex:1;padding:7px;border:1px solid #aaa;border-radius:5px;min-width:120px">
       <input id="newUserPass" type="text" placeholder="Password" style="flex:1;padding:7px;border:1px solid #aaa;border-radius:5px;min-width:120px">
@@ -682,26 +721,86 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       </select>
       <button class="act" onclick="addUser()">＋ Add</button>
     </div>
-    <div id="usersMsg" style="font-size:13px;color:#3d5f1f;margin-top:8px"></div>
+    <div id="usersMsg" style="font-size:13px;color:#0f4c81;margin-top:8px"></div>
   </div>
 </div>
 
 <div id="masterModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:215;overflow:auto;padding:24px">
   <div style="background:#fff;max-width:960px;margin:0 auto;border-radius:8px;padding:20px 24px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <h2 style="margin:0;color:#3d5f1f">Master Report Template</h2>
+      <h2 style="margin:0;color:#0f4c81">Master Report Template</h2>
       <button class="act" onclick="saveMaster()">💾 Save changes</button>
       <label class="act sec" style="cursor:pointer">🖼️ Change logo
         <input id="masterLogoInput" type="file" accept="image/*" style="display:none" onchange="changeMasterLogo(event)"></label>
       <button class="act sec" style="margin-left:auto" onclick="closeMaster()">✕ Close</button>
     </div>
     <div style="font-size:12px;color:#777;margin-bottom:10px">Click any highlighted field to edit it. Changes apply to <b>all</b> reports once saved. (Data rows shown are examples only.)</div>
+    <div id="masterControls" style="margin-bottom:10px"></div>
     <div id="masterView" style="background:#eef0f2;padding:18px;border-radius:6px;display:flex;justify-content:center"></div>
   </div>
 </div>
 
 <script>
-const APP_VERSION='v1.1';   // bump on each release
+const APP_VERSION='v2.5';   // bump on each release
+
+/* =====================================================================
+   LICENSE  — offline, signed annual key (Model A). The app holds only the
+   PUBLIC key and can verify but NOT mint keys. Keys are minted with the
+   private key in the separate "License Generator (PRIVATE).html" tool.
+   ===================================================================== */
+const LICENSE_KEY_STORE='icpLicense';
+const LICENSE_PUBLIC_JWK={"kty":"EC","crv":"P-256","x":"mroFeAuSb0sEqwVzcT74YtDP7S91v78dQwF1KamKbJY","y":"QmOH_fzNbewQsCH-MOamhtNTuyrbpmiNrsdyI-WgJr0","ext":true};
+let LICENSE_INFO=null;
+let _pubKeyPromise=null;
+function getLicPubKey(){ if(!_pubKeyPromise) _pubKeyPromise=crypto.subtle.importKey('jwk',LICENSE_PUBLIC_JWK,{name:'ECDSA',namedCurve:'P-256'},false,['verify']); return _pubKeyPromise; }
+function b64urlToBytes(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; const bin=atob(s); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return a; }
+async function verifyLicenseString(str){
+  try{
+    if(!window.crypto||!crypto.subtle) return {ok:false,reason:'nocrypto'};
+    const parts=String(str).trim().split('.');
+    if(parts.length!==2||!parts[0]||!parts[1]) return {ok:false,reason:'malformed'};
+    const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'}, await getLicPubKey(),
+              b64urlToBytes(parts[1]), new TextEncoder().encode(parts[0]));
+    if(!ok) return {ok:false,reason:'badsig'};
+    const payload=JSON.parse(new TextDecoder().decode(b64urlToBytes(parts[0])));
+    if(payload.exp && new Date(payload.exp+'T23:59:59') < new Date()) return {ok:false,reason:'expired',payload};
+    return {ok:true,payload};
+  }catch(e){ return {ok:false,reason:'error'}; }
+}
+function showLicense(reason,payload){
+  const m=document.getElementById('licModal'); m.style.display='block';
+  document.getElementById('licLogo').src=(typeof ICON_LOGO!=='undefined')?ICON_LOGO:'logo.jpg';
+  const err=document.getElementById('licErr');
+  if(reason==='nocrypto') err.textContent='⚠️ Please open this app in Chrome or Edge to activate your license.';
+  else if(reason==='expired') err.textContent='Your license expired on '+(payload&&payload.exp)+'. Please enter a current key.';
+  else err.textContent='';
+  setTimeout(()=>document.getElementById('licInput').focus(),50);
+}
+function afterLicense(){
+  // license OK -> proceed to the normal login gate
+  if(!checkSession()) showLogin();
+}
+async function activateLicense(){
+  const str=document.getElementById('licInput').value.trim();
+  const res=await verifyLicenseString(str);
+  if(res.ok){
+    localStorage.setItem(LICENSE_KEY_STORE,str); LICENSE_INFO=res.payload;
+    document.getElementById('licModal').style.display='none';
+    addLog('LICENSE','Activated — licensed to "'+(res.payload.c||'?')+'", expires '+(res.payload.exp||'?'));
+    afterLicense();
+  }else{
+    document.getElementById('licErr').textContent = res.reason==='expired'
+      ? '❌ This license expired on '+(res.payload&&res.payload.exp)+'. Enter a current key.'
+      : (res.reason==='nocrypto' ? '⚠️ Open in Chrome or Edge to activate.' : '❌ Invalid license key.');
+    addLog('LICENSE','Failed activation ('+res.reason+')');
+  }
+}
+async function startLicenseGate(){
+  const stored=localStorage.getItem(LICENSE_KEY_STORE);
+  const res = stored ? await verifyLicenseString(stored) : {ok:false,reason:'none'};
+  if(res.ok){ LICENSE_INFO=res.payload; afterLicense(); }
+  else { localStorage.removeItem(LICENSE_KEY_STORE); showLicense(res.reason,res.payload); }
+}
 
 /* =====================================================================
    ACTIVITY LOG  — persistent, timestamped audit trail (regulated-lab traceability)
@@ -778,6 +877,46 @@ async function exportLog(){
 }
 
 /* =====================================================================
+   BUG REPORTING  — comments + session log, sent to the developer.
+   Set BUG_REPORT_EMAIL below to enable direct e-mail. Until then, the
+   report is saved to a .txt file the user can send manually.
+   ===================================================================== */
+const BUG_REPORT_EMAIL='';   // <-- put the developer's email here later
+function openBug(){ document.getElementById('bugText').value=''; document.getElementById('bugMsg').textContent=''; document.getElementById('bugModal').style.display='block'; setTimeout(()=>document.getElementById('bugText').focus(),50); }
+function closeBug(){ document.getElementById('bugModal').style.display='none'; }
+function submitBug(){
+  const comments=document.getElementById('bugText').value.trim();
+  if(!comments){ document.getElementById('bugMsg').textContent='⚠️ Please describe the issue first.'; return; }
+  addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
+  const arr=loadLog();
+  const logText=arr.map(logLine).join('\n\n');
+  const stamp=new Date().toLocaleString('en-US');
+  const report=['ICP Reporter — Bug Report',
+    'Version: '+APP_VERSION,
+    'Date: '+stamp,
+    'User: '+(CURRENT_USER||'-'),
+    'License: '+(LICENSE_INFO?(LICENSE_INFO.c+' (exp '+LICENSE_INFO.exp+')'):'-'),
+    '='.repeat(70),'',
+    'DESCRIPTION:', comments, '',
+    '='.repeat(70),
+    'SESSION ACTIVITY LOG ('+arr.length+' events):','', logText].join('\n');
+  // always save a copy the user can attach/keep
+  const fname='ICP Reporter Bug Report '+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';
+  const blob=new Blob([report],{type:'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  if(BUG_REPORT_EMAIL){
+    const subject=encodeURIComponent('ICP Reporter bug report — '+APP_VERSION);
+    const body=encodeURIComponent(comments+'\n\n(The full session log was downloaded as "'+fname+'" — please attach it to this email.)');
+    window.location.href='mailto:'+BUG_REPORT_EMAIL+'?subject='+subject+'&body='+body;
+    document.getElementById('bugMsg').textContent='✅ Opening your email — attach the downloaded file and send.';
+  }else{
+    document.getElementById('bugMsg').textContent='✅ Report saved as a .txt file. (Direct email will be enabled once a developer address is set.)';
+  }
+  setTimeout(closeBug,2500);
+}
+
+/* =====================================================================
    ACCESS CONTROL  — login gate (12h session) + re-auth on function changes.
    NOTE: local-file accountability/access layer, not cryptographic security.
    Failsafe account: username "admin", password "password".
@@ -822,6 +961,8 @@ function showLogin(){
   const m=document.getElementById('loginModal'); m.style.display='block';
   document.getElementById('loginPass').value=''; document.getElementById('loginErr').textContent='';
   document.getElementById('loginLogo').src=(typeof ICON_LOGO!=='undefined')?ICON_LOGO:'logo.jpg';
+  const li=document.getElementById('licInfo');
+  if(li) li.textContent = LICENSE_INFO ? ('Licensed to '+(LICENSE_INFO.c||'—')+' · expires '+(LICENSE_INFO.exp||'—')) : '';
   setTimeout(()=>document.getElementById('loginUser').focus(),50);
 }
 function doLogin(){
@@ -898,7 +1039,7 @@ function removeUser(u){
    ===================================================================== */
 const TPL_KEY='icpTemplate';
 const DEFAULT_TEMPLATE={
-  title:'ICP-OES QUALITY REPORT', subtitle:'Nutrient Analysis',
+  title:'ICPOES Report', subtitle:'Nutrient Analysis',
   detailsHdr:'Report Details', infoHdr:'Sample Information',
   lblReportDate:'Report Date:', lblAnalyst:'Analyst:', lblSampleType:'Sample Type:', lblBatch:'Sample Batch #:',
   secMacro:'Macro Nutrient Analysis', secMicro:'Micro Nutrient Analysis',
@@ -908,11 +1049,20 @@ const DEFAULT_TEMPLATE={
   colDetected:'Detected (Y/N) – if Yes, list quantity',
   heavyNote:'Table 1 values derived from OMRI — agrocertify.com/news/omri-heavy-metals-requirements',
   phosphiteNote:'* P₂O₅ derived from phosphorous acid (phosphite)',
-  logo:null   // null = use the built-in company logo
+  logo:null,   // null = use the built-in company logo
+  heavyMetals:[
+    {el:'As', name:'Arsenic (As)', limit:0.001},
+    {el:'Cd', name:'Cadmium (Cd)', limit:0.002},
+    {el:'Pb', name:'Lead (Pb)',    limit:0.009},
+    {el:'Hg', name:'Mercury (Hg)', limit:0.000}
+  ],
+  showTables:{macro:true, micro:true, heavy:true, raw:true}   // per-table visibility
 };
 let TEMPLATE={};
 function loadTemplate(){ try{TEMPLATE=JSON.parse(localStorage.getItem(TPL_KEY))||{};}catch(e){TEMPLATE={};} }
 loadTemplate();
+// migrate old saved report title to the new default
+if(TEMPLATE.title==='ICP-OES QUALITY REPORT'){ delete TEMPLATE.title; localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE)); }
 function T(key){ return TEMPLATE[key]!==undefined ? TEMPLATE[key] : DEFAULT_TEMPLATE[key]; }
 function templateLogo(){ return TEMPLATE.logo || (typeof LOGO_DATA!=='undefined'?LOGO_DATA:'logo.jpg'); }
 // editable tagged span used inside reports + master editor
@@ -925,32 +1075,57 @@ function demoSample(){
            {compound:'Potassium Oxide (K₂O)',kind:'value',value:8,claim:8,phosphite:false,wl:'766.491'}],
     additional:[{compound:'Calcium (Ca)',kind:'value',value:4,claim:4,wl:'393.366'}],
     hasPhosphite:false, error:null,
-    metals:HEAVY_METALS.map(h=>({...h,detected:'N',qty:'',wl:'—'}))};
+    metals:heavyMetalList().map(h=>({...h,detected:'N',qty:'',wl:'—'}))};
 }
 let _pendingLogo=null;   // staged logo (committed on Save)
 function openMaster(){ requireAdmin('open the master template', _openMaster); }
+let _templateBackup=null;
 function _openMaster(){
   _pendingLogo=null;
+  _templateBackup=JSON.parse(JSON.stringify(TEMPLATE));   // for Cancel
+  renderMasterControls();
+  renderMasterPreview();
+  document.getElementById('masterModal').style.display='block';
+  addLog('TEMPLATE','Opened master template editor');
+}
+function renderMasterControls(){
+  const cur=reportColors();
+  const opts=COLOR_SCHEMES.map(s=>`<option value="${s.id}" ${s.primary===cur.primary?'selected':''}>${s.name}</option>`).join('');
+  document.getElementById('masterControls').innerHTML=
+    `<label style="font-size:13px;font-weight:bold;color:#0f4c81">Report color scheme:
+      <select onchange="setScheme(this.value)" style="padding:5px;margin-left:6px;border:1px solid #aaa;border-radius:3px">${opts}</select></label>`;
+}
+function setScheme(id){
+  captureInlineEdits();
+  const s=COLOR_SCHEMES.find(x=>x.id===id);
+  if(s) TEMPLATE.scheme={primary:s.primary, dark:s.dark, headerBg:s.headerBg, border:s.border};
+  renderMasterPreview();
+}
+function renderMasterPreview(){
   const view=document.getElementById('masterView');
   view.innerHTML=reportHTML(demoSample());
   const rep=view.querySelector('.report');
   rep.setAttribute('contenteditable','false');
-  rep.querySelectorAll('.lockbtn,.no-export').forEach(n=>n.remove());     // no lock/controls in editor
-  // make only the tagged template fields editable + highlighted
+  rep.querySelectorAll('.lockbtn,.no-export').forEach(n=>n.remove());
   rep.querySelectorAll('[data-tpl]').forEach(el=>{
     el.setAttribute('contenteditable','true');
-    el.style.outline='1px dashed #4f7a28'; el.style.background='rgba(79,124,40,.08)'; el.style.padding='0 2px';
+    el.style.outline='1px dashed #1a6cb0'; el.style.background='rgba(26,108,176,.08)'; el.style.padding='0 2px';
   });
-  // keep duplicated fields (e.g. "λ (nm)", "Measured Value" appear in several tables) in sync
   rep.addEventListener('input',e=>{
     const k=e.target.getAttribute&&e.target.getAttribute('data-tpl'); if(!k) return;
     const v=e.target.textContent;
     rep.querySelectorAll('[data-tpl="'+k+'"]').forEach(o=>{ if(o!==e.target) o.textContent=v; });
   });
-  document.getElementById('masterModal').style.display='block';
-  addLog('TEMPLATE','Opened master template editor');
+  if(_pendingLogo){ const img=rep.querySelector('.rep-logo-img'); if(img) img.src=_pendingLogo; }
 }
-function closeMaster(){ document.getElementById('masterModal').style.display='none'; }
+function captureInlineEdits(){
+  const rep=document.querySelector('#masterView .report'); if(!rep) return;
+  rep.querySelectorAll('[data-tpl]').forEach(el=>{ TEMPLATE[el.getAttribute('data-tpl')]=el.textContent.trim(); });
+}
+function closeMaster(){
+  if(_templateBackup){ TEMPLATE=_templateBackup; _templateBackup=null; }   // Cancel = revert
+  _pendingLogo=null; document.getElementById('masterModal').style.display='none';
+}
 function changeMasterLogo(ev){
   const f=ev.target.files[0]; if(!f) return;
   const fr=new FileReader();
@@ -960,15 +1135,13 @@ function changeMasterLogo(ev){
 }
 function saveMaster(){ requireAdmin('save the master template', _saveMaster); }
 function _saveMaster(){
-  const view=document.getElementById('masterView');
-  const t={};
-  view.querySelectorAll('[data-tpl]').forEach(el=>{ t[el.getAttribute('data-tpl')]=el.textContent.trim(); });
-  t.logo = _pendingLogo || TEMPLATE.logo || null;
-  TEMPLATE=t; localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE));
-  addLog('TEMPLATE','Saved master template'+(_pendingLogo?' (logo changed)':''), t);
-  _pendingLogo=null;
-  if(typeof SAMPLES!=='undefined' && SAMPLES.length) render();   // propagate to all reports
-  closeMaster();
+  captureInlineEdits();
+  if(_pendingLogo) TEMPLATE.logo=_pendingLogo;
+  localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE));
+  addLog('TEMPLATE','Saved master template'+(_pendingLogo?' (logo changed)':''), TEMPLATE);
+  _templateBackup=null; _pendingLogo=null;
+  if(typeof SAMPLES!=='undefined' && SAMPLES.length) render();
+  document.getElementById('masterModal').style.display='none';
 }
 
 /* =====================================================================
@@ -985,6 +1158,14 @@ const OPTIMUM_WAVELENGTHS = {
   Fe:238.204, Hg:194.164, K:766.491, Li:670.783, Mg:279.553, Mn:257.610,
   Na:589.592, Ni:221.648, P:213.618, Pb:220.353, Se:196.026, Sr:216.596,
   Tl:190.794, V:309.310, Zn:213.857
+};
+// full element names (for friendly labels when adding heavy metals)
+const ELEMENT_NAMES = {
+  Ag:'Silver', Al:'Aluminum', As:'Arsenic', B:'Boron', Ba:'Barium', Be:'Beryllium',
+  Ca:'Calcium', Cd:'Cadmium', Ce:'Cerium', Co:'Cobalt', Cr:'Chromium', Cu:'Copper',
+  Fe:'Iron', Hg:'Mercury', K:'Potassium', Li:'Lithium', Mg:'Magnesium', Mn:'Manganese',
+  Na:'Sodium', Ni:'Nickel', P:'Phosphorus', Pb:'Lead', Se:'Selenium', Sr:'Strontium',
+  Tl:'Thallium', V:'Vanadium', Zn:'Zinc'
 };
 
 // How each element is reported.  factor>1 = converted compound (P->P2O5, K->K2O);
@@ -1004,14 +1185,12 @@ const COMPOUND_INFO = {
   Mo: {compound:'Molybdenum (Mo)',  factor:1}    // note: no Mo line in raw data -> N/A
 };
 
-// Product catalog of label claims, in standard agricultural format.
-//   names:     accepted sample-type name(s); separate alternates with " / "
-//   guarantee: "N-P-K, # El, # El …"  (N is ignored; P->P2O5, K->K2O; rest elemental)
-//   analytes:  use INSTEAD of guarantee for non-standard cases (e.g. CaO basis)
-// To add a product, just add one line with its guarantee string.
-const CATALOG = [
+// The app ships with NO preset sample types — every spec is user-added.
+// SEED_CATALOG below is ONLY used to preserve specs for existing installs (one-time
+// migration into the user's own editable store); brand-new installs start empty.
+const SEED_CATALOG = [
   {names:'nutrozen',                       guarantee:'0-11.2-8.9'},
-  {names:'nutripower',                     guarantee:'10.3 Ca, 3 Zn, 2 B'},  // elemental for now
+  {names:'nutripower',                     guarantee:'10.3 Ca, 3 Zn, 2 B'},
   {names:'Evergreen Org',                  guarantee:'3-3-3, 4 Ca, 0.1 Cu, 0.1 Zn'},
   {names:'Fosfi-Cal Org CA',               guarantee:'1-8-0, 8 Ca'},
   {names:'Best-K Org',                     guarantee:'0-0-13'},
@@ -1029,6 +1208,7 @@ const CATALOG = [
   {names:'Vigorex',                        guarantee:'5-14-2, 2.5 Ca, 2 S, 2 Mn, 3 Zn'},
   {names:'Zinquexx',                       guarantee:'3-13*-9, 14.0 Zn'}
 ];
+const CATALOG = [];   // no built-in presets; populated only from the user's own saved specs
 
 // Elements with no emission line in the raw data -> cannot be reported, omit entirely.
 const OMIT_ELEMENTS = new Set(['S','Mo']);
@@ -1081,12 +1261,61 @@ let EFF=[];
 function rebuildEff(){
   const edits=loadEdits(), hidden=new Set(loadHidden());
   EFF=[];
+  const builtinKeys=new Set();
   CATALOG.forEach(e=>{
-    const key=e._aliases[0].key;
+    const key=e._aliases[0].key; builtinKeys.add(key);
     if(hidden.has(key)) return;
     EFF.push(edits[key] ? makeEntry(edits[key].names, edits[key].analytes) : e);
   });
+  // brand-new user-added types live in edits but aren't built-in -> add them too
+  Object.keys(edits).forEach(key=>{
+    if(!builtinKeys.has(key) && !hidden.has(key)) EFF.push(makeEntry(edits[key].names, edits[key].analytes));
+  });
 }
+// One-time migration: EXISTING installs keep the former preset library (copied into
+// the user's own editable store). BRAND-NEW installs start completely empty.
+// Split rule: P→P₂O₅ and K→K₂O go to the Macro store; everything else to Micro.
+(function seedExistingInstall(){
+  const FLAG='icpSeededV1';
+  if(localStorage.getItem(FLAG)) return;
+  const hadData = ['icpActivityLog','icpCustomSpecs','icpUsers','icpCatalogEdits','icpTemplate']
+    .some(k=>localStorage.getItem(k));
+  if(hadData){
+    const edits=loadEdits(), custom=loadCustom();
+    SEED_CATALOG.forEach(e=>{
+      const key=norm(String(e.names).split('/')[0]);
+      if(edits[key]||custom[key]) return;
+      const a=e.analytes||parseGuarantee(e.guarantee);
+      const macro=a.filter(x=>x.el==='P'||x.el==='K');
+      const micro=a.filter(x=>x.el!=='P'&&x.el!=='K');
+      if(macro.length) edits[key]={names:e.names, analytes:macro};
+      if(micro.length) custom[key]={disp:e.names, aliases:String(e.names).split('/').map(s=>norm(s)).filter(Boolean), specs:micro};
+    });
+    saveEdits(edits); saveCustom(custom);
+  }
+  localStorage.setItem(FLAG,'1');
+})();
+// Corrective one-time pass: move any non-P/K analytes already sitting in the Macro
+// store over to the Micro store (fixes installs seeded before the split rule existed).
+(function fixMacroSplit(){
+  const FLAG='icpMacroFixV1';
+  if(localStorage.getItem(FLAG)) return;
+  const edits=loadEdits(), custom=loadCustom(); let changed=false;
+  Object.keys(edits).forEach(key=>{
+    const a=edits[key].analytes||[];
+    const move=a.filter(x=>x.el!=='P'&&x.el!=='K');
+    if(!move.length) return;
+    changed=true;
+    edits[key].analytes=a.filter(x=>x.el==='P'||x.el==='K');
+    const names=edits[key].names;
+    const prev=(custom[key]&&custom[key].specs)?custom[key].specs:[];
+    const have=new Set(prev.map(p=>p.el));
+    custom[key]={disp:names, aliases:String(names).split('/').map(s=>norm(s)).filter(Boolean),
+                 specs:prev.concat(move.filter(m=>!have.has(m.el)))};
+  });
+  if(changed){ saveEdits(edits); saveCustom(custom); }
+  localStorage.setItem(FLAG,'1');
+})();
 rebuildEff();
 
 // Levenshtein edit distance (number of single-char insert/delete/substitute).
@@ -1127,6 +1356,9 @@ const HEAVY_METALS = [
   {el:'Pb', name:'Lead (Pb)',     limit:0.009},
   {el:'Hg', name:'Mercury (Hg)',  limit:0.000}
 ];
+// the active heavy-metal list + table visibility come from the master template (admin-editable)
+function heavyMetalList(){ return (typeof T==='function' && T('heavyMetals')) ? T('heavyMetals') : HEAVY_METALS; }
+function tableVis(){ return (typeof T==='function' && T('showTables')) ? T('showTables') : {macro:true,micro:true,heavy:true,raw:true}; }
 
 // Labels treated as calibration / QC controls (not samples). Case-insensitive.
 const CONTROL_PATTERNS = [
@@ -1177,6 +1409,7 @@ let SAMPLES=[];   // parsed sample objects for current file
 let RAW_GRID=[], RAW_HEADERROW=0, RAW_DATE=null;   // raw sheet + batch date for Raw Data doc
 let RAW_BYTES=null, RAW_EXT='.xlsx';   // original imported file bytes + extension (for exact re-export)
 const TYPE_OVERRIDES={};   // raw label -> user-chosen sample type (resolves unknown-type errors)
+const DISMISSED_FUZZY=new Set();   // labels whose fuzzy-match notice the user has dismissed
 let PENDING_TYPE_LABEL=null;   // label awaiting a brand-new type added via the modal
 
 function processWorkbook(wb){
@@ -1224,10 +1457,24 @@ function processWorkbook(wb){
   const firstTS = samples.length ? parseTS(samples[0].timestamp) : null;
   RAW_DATE = firstTS || parseTS(tsCol>=0 && dataRows[0] ? dataRows[0][tsCol] : null);
 
-  // build value sets per sample
+  // build value sets per sample (retain columns + mode so single reports can recompute)
   const mode=document.querySelector('input[name="mode"]:checked').value;
+  ELEM_COLS=elemCols; MODE=mode;
   SAMPLES=samples.map(s=>buildSample(s,elemCols,mode));
   return SAMPLES;
+}
+let ELEM_COLS={}, MODE='optimum';
+// compute heavy-metal result rows for a sample from its spec list
+function computeMetalRows(row, elemCols, specs, mode, wlOverrides){
+  return specs.map(hm=>{
+    const pref = (wlOverrides && wlOverrides['metal:'+hm.el]!=null) ? wlOverrides['metal:'+hm.el] : hm.wl;
+    const v=elementValue(row,elemCols,hm.el,mode,pref);
+    let detected, qty='';
+    if(v.value===null){detected='N/A — not calibrated';}
+    else if(v.value>hm.limit && v.value>0){detected='Y'; qty=sig3(v.value)+' %';}
+    else{detected='N';}
+    return {...hm, value:v.value, detected, qty, wl:wlDisp(v)};
+  });
 }
 // Parse a timestamp cell (formatted string, Date, or Excel serial) -> Date | null
 function parseTS(v){
@@ -1238,11 +1485,22 @@ function parseTS(v){
 }
 const fmtDate=d=> d?d.toLocaleDateString('en-US'):'';
 
-// returns elemental % value for an element under the chosen mode
+// returns elemental % value for an element.
+// wlPref (optional): 'optimum' | 'average' | a specific wavelength number/string.
+//   When omitted, the global mode is used. A specific line falls back to optimum if absent.
 // {value, flags, used:(wavelength | 'avg' | null), n:(# averaged)}
-function elementValue(row,elemCols,el,mode){
+function elementValue(row,elemCols,el,mode,wlPref){
   const cols=elemCols[el];
   if(!cols) return {value:null,flags:'',used:null};
+  let pref = (wlPref!=null && wlPref!=='') ? wlPref : mode;
+  // a specific wavelength requested?
+  if(pref!=='optimum' && pref!=='average' && /\d/.test(String(pref))){
+    const target=parseFloat(pref);
+    const pick=cols.find(c=>Math.abs(c.wl-target)<0.01);
+    if(pick){ const p=parseCell(row[pick.col]); return {value:p.value,flags:p.flags,used:pick.wl}; }
+    pref='optimum';   // requested line not present in this data -> fall back
+  }
+  mode = (pref==='average') ? 'average' : 'optimum';
   if(mode==='optimum'){
     const opt=OPTIMUM_WAVELENGTHS[el];
     // prefer the optimum line, then nearest others; skip uncalibrated/blank (null) readings
@@ -1277,8 +1535,10 @@ function wlDisp(v){
 
 // Compute a single analyte row {el,compound,kind,value,claim,phosphite,wl}.
 //  kind: 'value' (measured), 'nd' (negative=non-detect), 'na' (not measured by method)
-function analyteRow(row,elemCols,a,mode){
-  const v=elementValue(row,elemCols,a.el,mode);
+function analyteRow(row,elemCols,a,mode,wlOverrides,table){
+  const key=(table||'')+':'+a.el;
+  const pref = (wlOverrides && wlOverrides[key]!=null) ? wlOverrides[key] : a.wl;
+  const v=elementValue(row,elemCols,a.el,mode,pref);
   let kind, value=null;
   if(v.value===null)   kind='na';
   else if(v.value<=0)  kind='nd';
@@ -1302,6 +1562,20 @@ function customSpecsFor(type){
   }
   return [];
 }
+// per-sample-type heavy metals (Heavy Metal table). null = type defines none.
+const HMETAL_KEY='icpTypeMetals';
+function loadTypeMetals(){ try{return JSON.parse(localStorage.getItem(HMETAL_KEY))||{};}catch(e){return {};} }
+function saveTypeMetals(o){ localStorage.setItem(HMETAL_KEY, JSON.stringify(o)); }
+function typeMetalsFor(type){
+  const t=norm(type); if(!t) return null;
+  const store=loadTypeMetals();
+  for(const k in store){
+    const r=store[k];
+    const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
+    if(aliases.includes(t)) return r.metals||[];
+  }
+  return null;
+}
 
 function buildSample(s,elemCols,mode){
   // The NUMBER token(s) are always the batch #; the WORD token(s) are the type.
@@ -1312,11 +1586,16 @@ function buildSample(s,elemCols,mode){
   const type = TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label]
                                                    : toks.filter(t=>/[A-Za-z]/.test(t)).join(' ');
 
-  // match the sample type against the label-claim catalog (typo-tolerant)
+  // match the sample type (typo-tolerant) across its three content categories
   const mc=matchCatalog(type);
-  const entry=mc.entry;
-  const custom=customSpecsFor(type);                 // user-added specs (Additional table)
-  const analyteDefs=entry?entry._analytes:DEFAULT_ANALYTES;
+  const entry=mc.entry;                               // macro analytes
+  const custom=customSpecsFor(type);                  // micro analytes
+  const typeMetals=typeMetalsFor(type);               // heavy metals (null = none defined)
+  const known = !!entry || custom.length>0 || typeMetals!==null;
+
+  // A report conforms to its type: only the tables the type actually defines are shown.
+  // Unknown types fall back to P₂O₅/K₂O + default heavy metals so nothing is silently lost.
+  const analyteDefs = entry ? entry._analytes : (known ? [] : DEFAULT_ANALYTES);
 
   // validation: flag missing / unknown / fuzzy-matched types
   const tube=s.row[0]!==undefined?String(s.row[0]).trim():'';
@@ -1324,47 +1603,68 @@ function buildSample(s,elemCols,mode){
   if(!type){
     error={code:'ERR-NO-TYPE',
       msg:'No sample-type word found — only a batch number was present.'};
-  }else if(!entry && !custom.length){
+  }else if(!known){
     error={code:'ERR-UNKNOWN-TYPE', suggestion:mc.suggestion||null,
       msg:`Sample type "${type}" is not in the label-claim catalog.`+
           (mc.suggestion?` Did you mean "${mc.suggestion}"?`:'')};
-  }else if(mc.fuzzy){
+  }else if(mc.fuzzy && !DISMISSED_FUZZY.has(s.label)){
     error={code:'WARN-FUZZY-MATCH', soft:true,
       msg:`Sample type "${type}" didn't match exactly — auto-matched to "${mc.suggestion}" `+
           `(off by ${mc.distance} character${mc.distance>1?'s':''}). Verify it's correct.`};
   }
 
-  const macro=analyteDefs.map(a=>analyteRow(s.row,elemCols,a,mode));     // Label Claim Analysis
-  const additional=custom.map(a=>analyteRow(s.row,elemCols,a,mode));     // Additional Elements
-  const hasPhosphite=macro.concat(additional).some(a=>a.phosphite);
+  const macroDefs=analyteDefs.map(a=>({...a}));
+  const microDefs=custom.map(a=>({...a}));
+  const metalSpecs=(typeMetals!==null ? typeMetals : (known ? [] : heavyMetalList())).map(m=>({...m}));
+  const wlOverrides={};   // per-report wavelength overrides (element -> line), any user
 
-  const metals=HEAVY_METALS.map(hm=>{
-    const v=elementValue(s.row,elemCols,hm.el,mode);
-    let detected, qty='';
-    if(v.value===null){detected='N/A — not calibrated';}
-    else if(v.value>hm.limit && v.value>0){detected='Y'; qty=sig3(v.value)+' %';}
-    else{detected='N';}
-    return {...hm, value:v.value, detected, qty, wl:wlDisp(v)};
-  });
+  const macro=macroDefs.map(a=>analyteRow(s.row,elemCols,a,mode,wlOverrides,'macro'));
+  const additional=microDefs.map(a=>analyteRow(s.row,elemCols,a,mode,wlOverrides,'micro'));
+  const hasPhosphite=macro.concat(additional).some(a=>a.phosphite);
+  const metals=computeMetalRows(s.row, elemCols, metalSpecs, mode, wlOverrides);
 
   const reportDate=fmtDate(parseTS(s.timestamp));   // from the raw-data timestamp
-  return {label:s.label, batch, type, tube, reportDate, macro, additional, hasPhosphite, matched:!!entry, error, metals};
+  return {label:s.label, batch, type, tube, reportDate, macro, additional, hasPhosphite,
+          matched:known, error, metals, macroDefs, microDefs, metalSpecs, wlOverrides, hiddenTables:{}, row:s.row};
+}
+// recompute one sample's rows after a per-report wavelength override change
+function recomputeSample(s){
+  s.macro=s.macroDefs.map(a=>analyteRow(s.row,ELEM_COLS,a,MODE,s.wlOverrides,'macro'));
+  s.additional=s.microDefs.map(a=>analyteRow(s.row,ELEM_COLS,a,MODE,s.wlOverrides,'micro'));
+  s.hasPhosphite=s.macro.concat(s.additional).some(a=>a.phosphite);
+  s.metals=computeMetalRows(s.row,ELEM_COLS,s.metalSpecs,MODE,s.wlOverrides);
 }
 
 /* =====================================================================
    RENDER
    ===================================================================== */
-/* Inline-literal style strings — used so Microsoft Word keeps colors,
-   borders and page breaks (Word ignores CSS variables and <style> classes). */
-const S={
-  table:'width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;font-family:Arial,sans-serif',
-  th:'border:1px solid #bcbcbc;padding:8px 10px;text-align:left;background:#f2f2f2;font-weight:bold',
-  td:'border:1px solid #bcbcbc;padding:8px 10px;text-align:left;vertical-align:top',
-  sec:'color:#3d5f1f;font-size:15px;font-weight:bold;margin:20px 0 8px;text-transform:uppercase',
-  nd:'color:#a33;font-style:italic',
-  pb:'page-break-before:always',
-  notes:'border:1px solid #bcbcbc;min-height:60px;padding:8px;font-size:13px'
-};
+/* Selectable report color schemes (chosen in the Master Template) */
+const COLOR_SCHEMES=[
+  {id:'blue',   name:'Lab Blue',        primary:'#1a6cb0', dark:'#0f4c81', headerBg:'#eef2f6', border:'#c2c8cf'},
+  {id:'slate',  name:'Slate Gray',      primary:'#4a5568', dark:'#2d3748', headerBg:'#eef0f3', border:'#cbd2d9'},
+  {id:'graphite',name:'Graphite (B/W)', primary:'#333333', dark:'#151515', headerBg:'#eeeeee', border:'#cccccc'},
+  {id:'teal',   name:'Teal',            primary:'#0f7b8a', dark:'#0a5b66', headerBg:'#e9f4f5', border:'#c3dbdd'},
+  {id:'green',  name:'Forest Green',    primary:'#2f7a3f', dark:'#1e5a2b', headerBg:'#eef5ee', border:'#cdd8cd'},
+  {id:'indigo', name:'Indigo',          primary:'#4b3f9e', dark:'#342c72', headerBg:'#efeef7', border:'#d1cde6'},
+  {id:'burgundy',name:'Burgundy',       primary:'#8e2f45', dark:'#6a1f31', headerBg:'#f6ecef', border:'#ddc9ce'},
+  {id:'gold',   name:'Amber Gold',      primary:'#9a6b0f', dark:'#6f4d08', headerBg:'#f7f1e3', border:'#e2d4b0'},
+  {id:'navy',   name:'Navy',            primary:'#1f3a5f', dark:'#132840', headerBg:'#eceff3', border:'#c4cdd8'}
+];
+const DEFAULT_SCHEME=COLOR_SCHEMES[0];
+function reportColors(){ const s=(typeof T==='function')&&T('scheme'); return (s&&s.primary)?s:DEFAULT_SCHEME; }
+// build the inline-literal style set from a scheme (Word keeps colors this way)
+function styleSet(c){
+  return {
+    table:'width:100%;border-collapse:collapse;font-size:13px;margin-bottom:6px;font-family:Arial,sans-serif',
+    th:`border:1px solid ${c.border};padding:8px 10px;text-align:left;background:${c.headerBg};font-weight:bold`,
+    td:`border:1px solid ${c.border};padding:8px 10px;text-align:left;vertical-align:top`,
+    sec:`color:${c.dark};font-size:15px;font-weight:bold;margin:20px 0 8px;text-transform:uppercase`,
+    nd:'color:#a33;font-style:italic',
+    pb:'page-break-before:always',
+    notes:`border:1px solid ${c.border};min-height:60px;padding:8px;font-size:13px`
+  };
+}
+const S=styleSet(DEFAULT_SCHEME);   // default (used outside a specific report)
 
 function logoHTML(){
   return `<img class="rep-logo-img" src="${templateLogo()}" alt="Company logo" style="height:60px">`;
@@ -1372,11 +1672,14 @@ function logoHTML(){
 
 // dropdown <option>s of every known sample type (catalog + custom-only)
 function typeOptionsHTML(){
-  const names=EFF.map(e=>e.names);
-  const custom=loadCustom(), catKeys=new Set(EFF.flatMap(e=>e._aliases.map(a=>a.key)));
-  Object.keys(custom).forEach(k=>{ if(!catKeys.has(k)) names.push(custom[k].disp); });
+  // include every known type across macro (EFF), micro (custom) and heavy-metal (typeMetals) stores
+  const seen=new Set(), names=[];
+  const add=(disp,key)=>{ if(!key||seen.has(key))return; seen.add(key); names.push(disp); };
+  EFF.forEach(e=>add(e.names, e._aliases[0].key));
+  const custom=loadCustom(); Object.keys(custom).forEach(k=>add(custom[k].disp, k));
+  const tm=loadTypeMetals(); Object.keys(tm).forEach(k=>add(tm[k].disp, k));
   // value = first name only (so it matches an alias); label shows all alternates
-  return names.map(n=>{const v=n.split('/')[0].trim();
+  return names.map(n=>{const v=String(n).split('/')[0].trim();
     return `<option value="${v.replace(/"/g,'&quot;')}">${n}</option>`;}).join('');
 }
 
@@ -1399,6 +1702,17 @@ function buildErrBanner(s){
           <option value="__new__">➕ Add new sample type…</option>
         </select></span>`;
     controls=`<div style="margin-top:7px">${yesNo}${pick}</div>`;
+  }else{
+    // soft (fuzzy auto-match): allow dismiss, or change to another type / add new
+    const pick=`<span class="typePicker" style="display:none">
+        <select onchange='chooseType(${lbl},this.value)' style="padding:4px;font-size:12px">
+          <option value="">— select sample type —</option>
+          ${typeOptionsHTML()}
+          <option value="__new__">➕ Add new sample type…</option>
+        </select></span>`;
+    controls=`<div style="margin-top:7px">
+      <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Dismiss</button>
+      <button type="button" style="${btn}" onclick='revealPicker(this)'>✎ Change…</button>${pick}</div>`;
   }
   return `<div contenteditable="false" style="border:1px solid ${col.b};background:${col.bg};color:${col.t};
       padding:8px 10px;margin-bottom:14px;font-size:13px;border-radius:4px">
@@ -1414,6 +1728,13 @@ function applySuggestion(label,type){
   TYPE_OVERRIDES[label]=type;
   addLog('TYPE_OVERRIDE',`Sample "${label}" confirmed as type "${type}" (suggestion accepted)`);
   if(lastFile) readFile(lastFile);
+}
+// accept a fuzzy auto-match and hide its notice (kept dismissed for the session)
+function dismissFuzzy(label){
+  DISMISSED_FUZZY.add(label);
+  const s=SAMPLES.find(x=>x.label===label); if(s) s.error=null;
+  addLog('TYPE_OVERRIDE',`Fuzzy match accepted (notice dismissed) for "${label}"`);
+  render();
 }
 function chooseType(label,val){
   if(!val) return;
@@ -1440,20 +1761,40 @@ function _applyLock(btn, willEdit){
   addLog('REPORT', willEdit?'Report unlocked for editing':'Report locked — changes saved');
 }
 
-function reportHTML(s){
+function sampleTableVis(s){
+  const h=(s&&s.hiddenTables)||{};
+  // auto-show a table only if the sample type has content for it; a per-report
+  // toggle (h.*) overrides the auto rule for that one report.
+  const auto={ macro:(s&&s.macro&&s.macro.length>0),
+               micro:(s&&s.additional&&s.additional.length>0),
+               heavy:(s&&s.metals&&s.metals.length>0),
+               raw:true };
+  return { macro: h.macro!==undefined?!h.macro:auto.macro,
+           micro: h.micro!==undefined?!h.micro:auto.micro,
+           heavy: h.heavy!==undefined?!h.heavy:auto.heavy,
+           raw:   h.raw!==undefined?!h.raw:auto.raw };
+}
+function reportHTML(s,idx){
+  const C=reportColors();        // chosen color scheme
+  const S=styleSet(C);           // report tables/headings use the scheme
   const uiDate=document.getElementById('repdate').value||'';
   const analyst=document.getElementById('analyst').value||'';
   // report date comes from the raw-data timestamp; manual UI date is a fallback
   const dDisp = s.reportDate || (uiDate?new Date(uiDate+'T00:00').toLocaleDateString('en-US'):'');
   const ndSpan='<span style="'+S.nd+'">Non-Detect</span>';
+  const st=sampleTableVis(s);   // per-report table visibility
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
   const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
   const measured=(m)=> m.kind==='value'?sig3(m.value) : m.kind==='nd'?ndSpan : naSpan;
   const star=m=>m.phosphite?'<sup>*</sup>':'';
+  // clickable wavelength cell (any user can change the source line for this report)
+  const wlCell=(el,disp,tbl)=> (idx!=null)
+    ? `<td style="${S.td}"><span class="wlcell" data-i="${idx}" data-tbl="${tbl}" data-el="${el}" title="Click to change the wavelength / data source">${disp}</span></td>`
+    : `<td style="${S.td}">${disp}</td>`;
 
   const macroRows=s.macro.map(m=>`
-    <tr>${cell('<b>'+m.compound+star(m)+'</b>')}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${cell(m.wl)}</tr>`).join('');
+    <tr>${cell('<b>'+m.compound+star(m)+'</b>')}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
   // phosphite footnote shown only when a "*" appears in the table
   const footnote=s.hasPhosphite?`<div style="font-size:11px;font-style:italic;color:#888;margin:2px 0 6px">
       ${te('phosphiteNote')}</div>`:'';
@@ -1461,23 +1802,25 @@ function reportHTML(s){
   // micronutrient table: list spec'd micronutrients; if none, one "n/a" row
   const addRows=(s.additional&&s.additional.length)
     ? s.additional.map(a=>`
-        <tr>${cell('<b>'+a.compound+'</b>')}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${cell(a.wl)}</tr>`).join('')
+        <tr>${cell('<b>'+a.compound+'</b>')}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
     : `<tr>${cell('n/a').repeat(4)}</tr>`;
 
   const metalRows=s.metals.map(hm=>`
     <tr><td style="${S.td}"><b>${hm.name}</b></td>
         <td style="${S.td}">${hm.limit.toFixed(3)}</td>
         <td style="${S.td}${hm.detected==='Y'?'':';'+S.nd}">${hm.detected}${hm.qty?(' — '+hm.qty):''}</td>
-        <td style="${S.td}">${hm.wl}</td></tr>`).join('');
+        ${wlCell(hm.el,hm.wl,'metal')}</tr>`).join('');
 
   const errBanner=buildErrBanner(s);
 
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">🔒</button>` : '';
+  const layout = (isAdmin() && idx!=null) ? layoutPanel(s,idx) : '';
   return `<div class="report" contenteditable="false">
     ${lockBtn}
+    ${layout}
     <div class="rep-head">${logoHTML()}</div>
-    <div style="text-align:center;color:#4f7a28;font-size:24px;font-weight:bold;margin:14px 0 2px">${te('title')}</div>
+    <div style="text-align:center;color:${C.primary};font-size:24px;font-weight:bold;margin:14px 0 2px">${te('title')}</div>
     <div style="text-align:center;color:#777;font-size:14px;margin-bottom:18px">${te('subtitle')}</div>
     ${errBanner}
 
@@ -1487,31 +1830,34 @@ function reportHTML(s){
       <tr><td style="${S.td}">${te('lblAnalyst')} ${analyst}</td><td style="${S.td}">${te('lblBatch')} ${s.batch||''}</td></tr>
     </table>
 
+    ${st.macro===false?'':`
     <div style="${S.sec}">${te('secMacro')}</div>
     <table style="${S.table}">
       <tr><th width="40%" style="${S.th}">${te('colAnalyte')}</th><th width="22%" style="${S.th}">${te('colMeasured')}</th><th width="20%" style="${S.th}">${te('colClaim')}</th><th width="18%" style="${S.th}">${te('colWl')}</th></tr>
       ${macroRows}
     </table>
-    ${footnote}
+    ${footnote}`}
 
+    ${st.micro===false?'':`
     <div style="${S.sec}">${te('secMicro')}</div>
     <table style="${S.table}">
       <tr><th width="34%" style="${S.th}">${te('colElement')}</th><th width="22%" style="${S.th}">${te('colMeasured')}</th><th width="22%" style="${S.th}">${te('colClaim')}</th><th width="22%" style="${S.th}">${te('colWl')}</th></tr>
       ${addRows}
-    </table>
+    </table>`}
 
+    ${st.heavy===false?'':`
     <div style="${S.pb}"></div>
-
     <div style="${S.sec}">${te('secHeavy')}</div>
     <div style="font-size:11px;font-style:italic;color:#666;margin-bottom:6px">${te('heavyNote')}</div>
     <table style="${S.table}">
       <tr><th width="32%" style="${S.th}">${te('colMetal')}</th><th width="20%" style="${S.th}">${te('colLimit')}</th>
           <th width="30%" style="${S.th}">${te('colDetected')}</th><th width="18%" style="${S.th}">${te('colWl')}</th></tr>
       ${metalRows}
-    </table>
+    </table>`}
 
+    ${st.raw===false?'':`
     <div style="${S.sec}">${te('secRaw')}</div>
-    <div style="${S.notes}">${rawDataTitle()}</div>
+    <div style="${S.notes}">${rawDataTitle()}</div>`}
 
     <div style="font-weight:bold;color:#333;margin-top:18px">${te('secSig')}</div>
     <table style="${S.table};margin-top:6px">
@@ -1546,7 +1892,7 @@ function rawPreviewHTML(){
   }).join('');
   return `<div class="raw-preview" style="background:#fff;width:92%;max-width:1500px;
        box-shadow:0 2px 10px rgba(0,0,0,.18);border-radius:6px;padding:14px 16px;margin-bottom:10px">
-     <div style="font-weight:bold;color:#3d5f1f;font-size:15px;margin-bottom:8px">📄 Raw Data Preview — ${rawDataTitle()}</div>
+     <div style="font-weight:bold;color:#0f4c81;font-size:15px;margin-bottom:8px">📄 Raw Data Preview — ${rawDataTitle()}</div>
      <div style="overflow:auto;max-height:360px;border:1px solid #ddd">
        <table style="border-collapse:collapse;font-family:Arial,sans-serif">${rows}</table>
      </div>
@@ -1561,14 +1907,104 @@ function render(){
       <div class="rep-tools">
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
         ${s.error?'<span style="color:'+(s.error.soft?'#b8860b':'#c0392b')+';font-weight:bold">'+(s.error.soft?'⚠️ ':'⛔ ')+s.error.code+'</span>':''}
-        <button onclick="oneWord(${i})">⬇️ Word</button>
-        <button onclick="onePdf(${i})">⬇️ PDF</button>
+        <span style="position:relative;display:inline-block">
+          <button onclick="toggleRepDl(${i},event)">⬇️ Download ▾</button>
+          <div id="repDl${i}" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:2px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:120px;overflow:hidden">
+            <button class="dl-item" onclick="oneWord(${i});closeRepDl()">Word</button>
+            <button class="dl-item" onclick="onePdf(${i});closeRepDl()">PDF</button>
+          </div>
+        </span>
       </div>
-      ${reportHTML(s)}
+      ${reportHTML(s,i)}
     </div>`).join('');
   document.getElementById('toolbar').style.display='flex';
+  OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
   renderWarnings();
 }
+
+/* ---- per-report layout controls (admin-only, never exported) ---- */
+const OPEN_LAYOUT=new Set();
+function layoutPanel(s,i){
+  const st=sampleTableVis(s);
+  const eles=Object.keys(OPTIMUM_WAVELENGTHS).sort();
+  const cb=(k,label)=>`<label style="margin-right:14px"><input type="checkbox" ${st[k]?'checked':''} onclick="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
+  const chips=(s.metalSpecs||[]).map(m=>`<span style="display:inline-block;background:#eef;border:1px solid #ccd;border-radius:10px;padding:1px 8px;margin:2px;font-size:11px">${m.name||m.el} <b style="cursor:pointer;color:#922" onclick="reportRemoveMetal(${i},'${m.el}')">✕</b></span>`).join('');
+  const opts=eles.map(e=>`<option value="${e}">${e}</option>`).join('');
+  return `<div id="layoutP${i}" class="no-export" contenteditable="false" style="display:none;border:1px solid #d8c98a;background:#fffdf5;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:12px">
+      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Show / hide tables (this report)</div>
+      <div style="margin-bottom:8px">${cb('macro','Macro')}${cb('micro','Micro')}${cb('heavy','Heavy Metals')}${cb('raw','Raw Data Ref')}</div>
+      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Heavy metals on this report</div>
+      <div style="margin-bottom:6px">${chips||'<span style="color:#888">none</span>'}</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Add:
+        <select id="addMetEl${i}" style="padding:3px">${opts}</select>
+        limit % <input id="addMetLim${i}" type="number" step="any" value="0" style="width:80px;padding:3px">
+        <button class="act sec" style="font-size:11px;padding:2px 8px" onclick="reportAddMetal(${i})">＋ Add metal</button>
+      </div></div>
+    <button class="no-export" contenteditable="false" onclick="toggleLayout(${i})" title="Edit this report's layout"
+      style="position:absolute;top:10px;right:48px;background:rgba(120,120,120,.16);border:0;border-radius:6px;padding:3px 8px;font-size:13px;cursor:pointer;opacity:.5">⚙</button>`;
+}
+function toggleLayout(i){
+  const p=document.getElementById('layoutP'+i); if(!p) return;
+  const open = p.style.display!=='block';
+  p.style.display = open?'block':'none';
+  if(open) OPEN_LAYOUT.add(i); else OPEN_LAYOUT.delete(i);
+}
+function reportTableToggle(i,key,on){
+  const s=SAMPLES[i]; if(!s) return;
+  s.hiddenTables=s.hiddenTables||{}; s.hiddenTables[key]=!on;
+  addLog('REPORT',`${on?'Showed':'Hid'} ${key} table on report "${s.label}"`);
+  render();
+}
+function reportAddMetal(i){
+  const s=SAMPLES[i]; if(!s) return;
+  const el=document.getElementById('addMetEl'+i).value;
+  const lim=parseFloat(document.getElementById('addMetLim'+i).value)||0;
+  if(s.metalSpecs.some(m=>m.el===el)){ alert(el+' is already in the heavy-metal table.'); return; }
+  s.metalSpecs.push({el, name:(ELEMENT_NAMES[el]?ELEMENT_NAMES[el]+' ('+el+')':el), limit:lim});
+  s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
+  addLog('REPORT',`Added heavy metal ${el} (limit ${lim}%) to report "${s.label}"`);
+  render();
+}
+function reportRemoveMetal(i,el){
+  const s=SAMPLES[i]; if(!s) return;
+  s.metalSpecs=s.metalSpecs.filter(m=>m.el!==el);
+  s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
+  addLog('REPORT',`Removed heavy metal ${el} from report "${s.label}"`);
+  render();
+}
+
+/* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
+function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remove(); }
+function openWlMenu(cell){
+  closeWlMenu();
+  const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
+  const s=SAMPLES[i]; if(!s) return;
+  const cols=(ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl);
+  const cur=(s.wlOverrides&&s.wlOverrides[tbl+':'+el]) || 'auto';
+  const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}',${JSON.stringify(String(val))})">${cur==val?'✓ ':''}${label}</button>`;
+  let html=opt('auto','Auto (global setting)')+opt('optimum','Optimum line')+opt('average','Average of all lines');
+  if(cols.length) html+='<div style="border-top:1px solid #eee;margin:2px 0"></div>'+
+    cols.map(c=>opt(c.wl, c.wl+' nm')).join('');
+  else html+='<div style="padding:6px 12px;color:#888">No lines in loaded data</div>';
+  const menu=document.createElement('div'); menu.id='wlMenu'; menu.innerHTML=html;
+  document.body.appendChild(menu);
+  const r=cell.getBoundingClientRect();
+  menu.style.left=(window.scrollX+r.left)+'px';
+  menu.style.top=(window.scrollY+r.bottom+2)+'px';
+}
+function setReportWl(i,tbl,el,val){
+  closeWlMenu();
+  const s=SAMPLES[i]; if(!s) return;
+  s.wlOverrides=s.wlOverrides||{};
+  if(val==='auto') delete s.wlOverrides[tbl+':'+el]; else s.wlOverrides[tbl+':'+el]=val;
+  recomputeSample(s);
+  addLog('REPORT',`Wavelength for ${el} (${tbl}) on report "${s.label}" set to ${val}`);
+  render();
+}
+document.addEventListener('click',e=>{
+  if(e.target.classList&&e.target.classList.contains('wlcell')){ e.stopPropagation(); openWlMenu(e.target); }
+  else if(!e.target.closest||!e.target.closest('#wlMenu')) closeWlMenu();
+});
 
 /* =====================================================================
    WORD EXPORT  (HTML -> .doc, opens natively in Microsoft Word)
@@ -1670,7 +2106,14 @@ function toggleDownloadMenu(ev){
   m.style.display = m.style.display==='block' ? 'none' : 'block';
 }
 function closeDownloadMenu(){ const m=document.getElementById('downloadMenu'); if(m) m.style.display='none'; }
-document.addEventListener('click',closeDownloadMenu);   // click-away closes it
+// per-report download dropdowns
+function closeRepDl(){ document.querySelectorAll('[id^="repDl"]').forEach(m=>m.style.display='none'); }
+function toggleRepDl(i,ev){
+  ev.stopPropagation();
+  const m=document.getElementById('repDl'+i); if(!m) return;
+  const open=m.style.display==='block'; closeRepDl(); m.style.display=open?'none':'block';
+}
+document.addEventListener('click',()=>{ closeDownloadMenu(); closeRepDl(); });   // click-away closes menus
 
 /* =====================================================================
    FILE INPUT WIRING
@@ -1714,7 +2157,7 @@ const drop=document.getElementById('drop');
 // NOTE: #drop is a <label> wrapping the file input, so clicking it already opens the
 // dialog natively. A JS fileInput.click() here would open it a SECOND time.
 fileInput.addEventListener('change',e=>{if(e.target.files[0]){lastFile=e.target.files[0];readFile(lastFile);}});
-['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.background='#e3f0d4';}));
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.background='#dbe8f5';}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.background='';}));
 drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){lastFile=f;readFile(f);}});
 
@@ -1738,8 +2181,29 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
-// access control: require login unless within the 12-hour session window
-if(!checkSession()) showLogin();
+// One-time: give pre-existing sample types the default heavy metals so their reports
+// keep the Heavy Metal table (new types start with whatever the user defines).
+(function seedTypeMetals(){
+  const FLAG='icpTypeMetalsSeedV1';
+  if(localStorage.getItem(FLAG)) return;
+  const def=DEFAULT_TEMPLATE.heavyMetals;
+  const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals();
+  const keys=new Set([...Object.keys(edits), ...Object.keys(custom)]);
+  let changed=false;
+  keys.forEach(k=>{
+    if(tm[k]) return;
+    const src=edits[k]||custom[k];
+    const names=(src&&(src.names||src.disp))||k;
+    tm[k]={disp:names, aliases:String(names).split('/').map(s=>norm(s)).filter(Boolean),
+           metals:def.map(m=>({...m}))};
+    changed=true;
+  });
+  if(changed) saveTypeMetals(tm);
+  localStorage.setItem(FLAG,'1');
+})();
+
+// license gate first (offline signed key); on success it proceeds to the login gate
+startLicenseGate();
 
 // session start/end logging
 addLog('SESSION','App opened'+(CURRENT_USER?' — session resumed for "'+CURRENT_USER+'"':''));
@@ -1756,14 +2220,38 @@ function analyteSummary(list){
   }).join('; ') || '<i>none</i>';
 }
 function openCatalog(){ EDIT_CONTEXT=null; rebuildEff(); renderCatalogList(); renderAddForm(); document.getElementById('catalogModal').style.display='block'; }
-function resetCatalog(){ requireAdmin('restore built-in catalog', _resetCatalog); }
-function _resetCatalog(){
-  if(!confirm('Restore all built-in sample types (undo your edits/deletions of built-ins)? Your custom-added types are kept.')) return;
-  localStorage.removeItem(HIDE_KEY); localStorage.removeItem(EDIT_KEY);
-  addLog('CATALOG','Restored built-in catalog to defaults');
-  refreshCatalog();
-}
 function closeCatalog(){ document.getElementById('catalogModal').style.display='none'; }
+
+// ---- Sample-type library export / import (move specs between devices) ----
+function exportLibrary(){
+  const data={app:'ICP Reporter', kind:'sample-type-library', version:APP_VERSION,
+              exported:new Date().toISOString(), edits:loadEdits(), custom:loadCustom(), typeMetals:loadTypeMetals()};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='ICP Reporter Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  addLog('CATALOG','Exported sample-type library');
+}
+function importLibrary(ev){
+  const f=ev.target.files[0]; if(!f) return; ev.target.value='';
+  const fr=new FileReader();
+  fr.onload=e=>{
+    let data; try{data=JSON.parse(e.target.result);}catch(_){ alert('That file is not a valid sample-type library.'); return; }
+    if(!data || data.kind!=='sample-type-library'){
+      if(!confirm('This doesn’t look like an ICP Reporter sample-type library. Import anyway?')) return;
+    }
+    requireAdmin('import sample types', ()=>{
+      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals();
+      Object.assign(edits, data.edits||{});                       // merge (imported wins on conflict)
+      Object.keys(data.custom||{}).forEach(k=>{ custom[k]=data.custom[k]; });
+      Object.keys(data.typeMetals||{}).forEach(k=>{ tm[k]=data.typeMetals[k]; });
+      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm);
+      addLog('CATALOG',`Imported sample-type library from "${f.name}"`);
+      refreshCatalog();
+      alert('Sample types imported successfully.');
+    });
+  };
+  fr.readAsText(f);
+}
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
@@ -1771,37 +2259,44 @@ function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); i
 
 function renderCatalogList(){
   const adm=isAdmin();
-  const custom=loadCustom();
+  const custom=loadCustom(), tmetals=loadTypeMetals();
   const tdL='border:1px solid #ddd;padding:6px 9px;text-align:left;vertical-align:top';
   const thL=tdL+';background:#f2f2f2;font-weight:bold';
   const act='cursor:pointer;border:1px solid #aaa;border-radius:4px;padding:2px 8px;margin:0 2px;font-size:11px;background:#fff';
-  const actions=(onEdit,onDel,delLabel)=> adm?`<td style="${tdL};white-space:nowrap">
-      <button style="${act}" onclick='${onEdit}'>✎ Edit</button>
-      <button style="${act};color:#922" onclick='${onDel}'>🗑 ${delLabel||'Delete'}</button></td>`:'';
+  const actions=(key)=> adm?`<td style="${tdL};white-space:nowrap">
+      <button style="${act}" onclick='editType(${JSON.stringify(key)})'>✎ Edit</button>
+      <button style="${act};color:#922" onclick='deleteType(${JSON.stringify(key)})'>🗑 Delete</button></td>`:'';
+  const metalSummary=list=>list.map(m=>`${m.name||m.el} (≤${m.limit}%)`).join('; ');
 
-  let rows=EFF.map(e=>{
-    const key=e._aliases[0].key;
-    const c=custom[key];
-    const extra=c&&c.specs?`<div style="color:#7a5c00;margin-top:3px">+ added: ${analyteSummary(c.specs)}
-        ${adm?`<button style="${act};color:#922;margin-left:6px" onclick='deleteCustom(${JSON.stringify(key)},true)'>✕ remove added</button>`:''}</div>`:'';
-    return `<tr><td style="${tdL}">${e.names}</td>
-      <td style="${tdL}">${analyteSummary(e._analytes)}${extra}</td>
-      ${actions(`editBuiltin(${JSON.stringify(key)})`, `deleteBuiltin(${JSON.stringify(key)})`)}</tr>`;
+  // gather every type key across macro (EFF), micro (custom), heavy (typeMetals)
+  const keys=new Set();
+  EFF.forEach(e=>keys.add(e._aliases[0].key));
+  Object.keys(custom).forEach(k=>keys.add(k));
+  Object.keys(tmetals).forEach(k=>keys.add(k));
+
+  const rows=[...keys].map(key=>{
+    const e=EFF.find(x=>x._aliases[0].key===key);
+    const cs=custom[key], ms=tmetals[key];
+    const names=(e&&e.names)||(cs&&cs.disp)||(ms&&ms.disp)||key;
+    const parts=[];
+    if(e&&e._analytes.length) parts.push('<b>Macro:</b> '+analyteSummary(e._analytes));
+    if(cs&&cs.specs&&cs.specs.length) parts.push('<b>Micro:</b> '+analyteSummary(cs.specs));
+    if(ms&&ms.metals&&ms.metals.length) parts.push('<b>Heavy metals:</b> '+metalSummary(ms.metals));
+    return `<tr><td style="${tdL}">${names}</td>
+      <td style="${tdL}">${parts.join('<br>')||'<i>none</i>'}</td>
+      ${actions(key)}</tr>`;
   });
-  // custom-only types (no catalog entry)
-  const catKeys=new Set(EFF.flatMap(e=>e._aliases.map(a=>a.key)));
-  Object.keys(custom).forEach(k=>{ if(!catKeys.has(k)){
-    rows.push(`<tr><td style="${tdL}">${custom[k].disp} <span style="color:#7a5c00">(custom)</span></td>
-      <td style="${tdL}">${analyteSummary(custom[k].specs)}</td>
-      ${actions(`editCustom(${JSON.stringify(k)})`, `deleteCustom(${JSON.stringify(k)})`)}</tr>`);
-  }});
   document.getElementById('catalogList').innerHTML=
     `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
-      <tr><th style="${thL}" width="28%">Sample type</th><th style="${thL}">Reported analytes &amp; claims</th>${adm?`<th style="${thL}" width="120">Actions</th>`:''}</tr>
-      ${rows.join('')}
+      <tr><th style="${thL}" width="26%">Sample type</th><th style="${thL}">Reported tables &amp; claims</th>${adm?`<th style="${thL}" width="120">Actions</th>`:''}</tr>
+      ${rows.join('')||`<tr><td style="${tdL}" colspan="3"><i>No sample types yet — add one below.</i></td></tr>`}
     </table>
-    <div style="color:#888;font-size:11px;margin-top:5px">Catalog claims show on the “Macro Nutrient Analysis” table; added specs show on the “Micro Nutrient Analysis” table.${adm?' Edits and deletions are saved on this computer.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
-    ${adm?`<button class="act sec" style="margin-top:8px;font-size:12px" onclick="resetCatalog()">↺ Restore built-in defaults</button>`:''}`;
+    <div style="color:#888;font-size:11px;margin-top:5px">A report shows only the tables its sample type defines (Macro, Micro and/or Heavy Metals).${adm?' All types are user-defined and saved on this computer.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
+    ${adm?`<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="act sec" style="font-size:12px" onclick="exportLibrary()">⬇️ Export sample types</button>
+      <label class="act sec" style="font-size:12px;cursor:pointer">⬆️ Import sample types
+        <input type="file" accept=".json,application/json" style="display:none" onchange="importLibrary(event)"></label>
+    </div>`:''}`;
 }
 
 const CONV_OPTIONS=[
@@ -1811,22 +2306,42 @@ const CONV_OPTIONS=[
   {label:'Ca → CaO (×1.3992)',        factor:1.3992},
   {label:'Custom factor…',            factor:'custom'}
 ];
-const ELEMENT_CHOICES=Object.keys(COMPOUND_INFO);
+// every measurable element is selectable (nutrients + heavy metals)
+const ELEMENT_CHOICES=Object.keys(OPTIMUM_WAVELENGTHS).sort();
+function elLabel(e){ return COMPOUND_INFO[e]?COMPOUND_INFO[e].compound : (ELEMENT_NAMES[e]?ELEMENT_NAMES[e]+' ('+e+')':e); }
 function convIndexForFactor(f){
   const i=CONV_OPTIONS.findIndex(o=>o.factor===f);
   return i>=0?i:CONV_OPTIONS.length-1;   // custom
 }
+// wavelength dropdown options for a spec row (Auto / Optimum / Average / specific lines)
+function wlOptionsHTML(el, sel){
+  sel = (sel==null||sel==='') ? 'auto' : String(sel);
+  const modeLbl = (typeof MODE!=='undefined'&&MODE==='average')?'Average':'Optimum';
+  let out=`<option value="auto" ${sel==='auto'?'selected':''}>Auto (global: ${modeLbl})</option>`+
+          `<option value="optimum" ${sel==='optimum'?'selected':''}>Optimum line</option>`+
+          `<option value="average" ${sel==='average'?'selected':''}>Average all</option>`;
+  (ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl).forEach(c=>{
+    out+=`<option value="${c.wl}" ${sel==String(c.wl)?'selected':''}>${c.wl} nm</option>`; });
+  return out;
+}
 function specRowHTML(sp){
   sp=sp||{};
-  const els=ELEMENT_CHOICES.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${COMPOUND_INFO[e].compound}</option>`).join('');
+  const els=ELEMENT_CHOICES.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('');
   const ci=sp.factor!=null?convIndexForFactor(sp.factor):0;
   const isCustom=CONV_OPTIONS[ci].factor==='custom';
   const conv=CONV_OPTIONS.map((o,i)=>`<option value="${i}" ${i===ci?'selected':''}>${o.label}</option>`).join('');
+  const isHeavy=sp.table==='heavy';
   return `<div class="specRow" style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
     <select class="sEl" style="flex:2;padding:5px">${els}</select>
-    <input class="sClaim" type="number" step="any" placeholder="claim %" value="${sp.claim!=null?sp.claim:''}" style="flex:1;padding:5px;min-width:80px">
-    <select class="sConv" style="flex:2;padding:5px">${conv}</select>
-    <input class="sFactor" type="number" step="any" placeholder="factor" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:80px;padding:5px;display:${isCustom?'':'none'}">
+    <input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit %':'claim %'}" value="${sp.claim!=null?sp.claim:''}" style="flex:1;padding:5px;min-width:70px">
+    <select class="sConv" style="flex:2;padding:5px" ${isHeavy?'disabled':''}>${conv}</select>
+    <input class="sFactor" type="number" step="any" placeholder="factor" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:74px;padding:5px;display:${isCustom&&!isHeavy?'':'none'}">
+    <select class="sTable" title="Which report table" style="padding:5px">
+      <option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option>
+      <option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option>
+      <option value="heavy" ${sp.table==='heavy'?'selected':''}>Heavy Metal</option>
+    </select>
+    <select class="sWl" title="Wavelength / data source" style="padding:5px;max-width:150px">${wlOptionsHTML(sp.el||ELEMENT_CHOICES[0], sp.wl)}</select>
     <button type="button" class="act sec" onclick="this.parentNode.remove()">✕</button>
   </div>`;
 }
@@ -1840,12 +2355,13 @@ function renderAddForm(){
   document.getElementById('addTitle').style.display='';
   const editing=!!EDIT_CONTEXT;
   const ec=EDIT_CONTEXT;
-  const existing=[...EFF.map(e=>e.names), ...Object.keys(loadCustom()).filter(k=>!EFF.some(e=>e._aliases.some(a=>a.key===k))).map(k=>loadCustom()[k].disp)];
+  const existing=(function(){const seen=new Set(),out=[];const add=(d,k)=>{if(k&&!seen.has(k)){seen.add(k);out.push(d);}};
+    EFF.forEach(e=>add(e.names,e._aliases[0].key)); const c=loadCustom();Object.keys(c).forEach(k=>add(c[k].disp,k));
+    const tm=loadTypeMetals();Object.keys(tm).forEach(k=>add(tm[k].disp,k)); return out;})();
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
   const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
-  const note = editing&&ec.kind==='builtin'
-    ? 'Analytes &amp; label claims (these are the catalog “Macro Nutrient Analysis” rows):'
-    : 'Analytes &amp; label claims (these go on the “Micro Nutrient Analysis” table):';
+  const note='Set each analyte to <b>Macro</b>, <b>Micro</b>, or <b>Heavy Metal</b> — the report shows only the tables you use. '+
+    'For Heavy Metal rows the number is the allowed limit %. (P→P₂O₅ and K→K₂O auto-set to Macro.)';
 
   document.getElementById('addTitle').textContent = editing
     ? `Editing: ${ec.name}` : 'Add new sample type';
@@ -1867,13 +2383,31 @@ function renderAddForm(){
     <div style="margin-top:12px">
       <button type="button" class="act" onclick="saveSpec()">💾 Save</button>
       ${editing?'<button type="button" class="act sec" onclick="cancelEdit()">✕ Cancel edit</button>':''}
-      <span id="saveMsg" style="margin-left:10px;font-size:13px;color:#3d5f1f"></span>
+      <span id="saveMsg" style="margin-left:10px;font-size:13px;color:#0f4c81"></span>
     </div>`;
-  // delegated handler: show the custom-factor field only for "Custom factor…"
+  // delegated handler: custom-factor visibility + smart Macro/Micro routing + heavy-metal mode
   document.getElementById('specRows').addEventListener('change',e=>{
-    if(!e.target.classList.contains('sConv')) return;
-    e.target.parentNode.querySelector('.sFactor').style.display =
-      CONV_OPTIONS[+e.target.value].factor==='custom' ? '' : 'none';
+    const row=e.target.closest('.specRow'); if(!row) return;
+    if(e.target.classList.contains('sConv')){
+      const cf=CONV_OPTIONS[+e.target.value].factor;
+      row.querySelector('.sFactor').style.display = cf==='custom'?'':'none';
+      if(cf===2.2914||cf===1.2046) row.querySelector('.sTable').value='macro';   // P₂O₅/K₂O -> Macro
+    }
+    if(e.target.classList.contains('sEl')){
+      const el=e.target.value;
+      if(el==='P'||el==='K'){
+        row.querySelector('.sConv').value = el==='P'?'1':'2';   // P→P₂O₅ / K→K₂O
+        row.querySelector('.sFactor').style.display='none';
+        row.querySelector('.sTable').value='macro';
+      }
+      row.querySelector('.sWl').innerHTML=wlOptionsHTML(el,'auto');   // refresh available lines
+    }
+    if(e.target.classList.contains('sTable')){
+      const heavy=e.target.value==='heavy';
+      row.querySelector('.sConv').disabled=heavy;                 // metals aren't converted
+      row.querySelector('.sClaim').placeholder = heavy?'limit %':'claim %';
+      if(heavy) row.querySelector('.sFactor').style.display='none';
+    }
   });
 }
 function toggleAddMode(){
@@ -1888,10 +2422,13 @@ function collectSpecs(){
   return [...document.querySelectorAll('#specRows .specRow')].map(r=>{
     const el=r.querySelector('.sEl').value;
     const claimV=r.querySelector('.sClaim').value;
+    const table=r.querySelector('.sTable').value;
     const cOpt=CONV_OPTIONS[+r.querySelector('.sConv').value];
-    const factor = cOpt.factor==='custom' ? parseFloat(r.querySelector('.sFactor').value)||1 : cOpt.factor;
-    const info=COMPOUND_INFO[el]||{compound:el};
-    return {el, compound:info.compound, factor, claim:claimV===''?null:parseFloat(claimV)};
+    const factor = table==='heavy' ? 1 : (cOpt.factor==='custom' ? parseFloat(r.querySelector('.sFactor').value)||1 : cOpt.factor);
+    const wlSel=r.querySelector('.sWl').value;
+    const wl = (wlSel==='auto') ? undefined : wlSel;   // 'auto' = follow global mode
+    const info=COMPOUND_INFO[el]||{compound:elLabel(el)};
+    return {el, compound:info.compound, factor, claim:claimV===''?null:parseFloat(claimV), table, wl};
   }).filter(s=>s.el);
 }
 function saveSpec(){ requireAdmin('add / edit sample type', _saveSpec); }
@@ -1905,68 +2442,68 @@ function _saveSpec(){
                          : document.getElementById('existSel').value.trim();
   }
   if(!dispName){ document.getElementById('saveMsg').textContent='⚠️ Enter a name.'; return; }
-  const specs=collectSpecs();
-  if(!specs.length){ document.getElementById('saveMsg').textContent='⚠️ Add at least one analyte.'; return; }
+  const all=collectSpecs();
+  if(!all.length){ document.getElementById('saveMsg').textContent='⚠️ Add at least one analyte.'; return; }
+  // route each analyte to its table: Macro -> edits, Micro -> custom, Heavy Metal -> typeMetals
+  const macroSpecs=all.filter(a=>a.table==='macro').map(a=>({el:a.el,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
+  const microSpecs=all.filter(a=>a.table==='micro').map(a=>({el:a.el,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
+  const metalSpecs=all.filter(a=>a.table==='heavy').map(a=>({el:a.el,name:a.compound,limit:a.claim!=null?a.claim:0,wl:a.wl}));
 
-  if(editing && EDIT_CONTEXT.kind==='builtin'){
-    // edit a built-in catalog entry -> stored override (Label Claim Analysis rows)
-    const edits=loadEdits();
-    if(EDIT_CONTEXT.key!==norm(dispName.split('/')[0])) delete edits[EDIT_CONTEXT.key];
-    edits[norm(dispName.split('/')[0])]={names:dispName, analytes:specs};
-    saveEdits(edits);
+  const key=norm(dispName.split('/')[0]);
+  const aliases=dispName.split('/').map(s=>norm(s)).filter(Boolean);
+  const edits=loadEdits(), store=loadCustom(), tm=loadTypeMetals();
+  // editing replaces the whole type definition; on rename, clear old keys everywhere
+  if(editing){
+    if(EDIT_CONTEXT.key!==key){ delete edits[EDIT_CONTEXT.key]; delete store[EDIT_CONTEXT.key]; delete tm[EDIT_CONTEXT.key]; }
+    if(macroSpecs.length) edits[key]={names:dispName, analytes:macroSpecs}; else delete edits[key];
+    if(microSpecs.length) store[key]={disp:dispName, aliases, specs:microSpecs}; else delete store[key];
+    if(metalSpecs.length) tm[key]={disp:dispName, aliases, metals:metalSpecs}; else delete tm[key];
   }else{
-    // new custom type, or editing an existing custom type -> Additional Elements specs
-    const store=loadCustom();
-    const newKey=norm(dispName.split('/')[0]);
-    const aliases=dispName.split('/').map(s=>norm(s)).filter(Boolean);
-    if(editing && EDIT_CONTEXT.kind==='custom'){
-      if(EDIT_CONTEXT.key!==newKey) delete store[EDIT_CONTEXT.key];   // renamed
-      store[newKey]={disp:dispName, aliases, specs};                  // overwrite
-    }else{
-      const prev=store[newKey]&&store[newKey].specs?store[newKey].specs:[];
-      store[newKey]={disp:dispName, aliases, specs:prev.concat(specs)};  // merge
+    // add/merge into an existing or brand-new type
+    if(macroSpecs.length){
+      const cur=EFF.find(x=>x._aliases[0].key===key);
+      const base = edits[key]?edits[key].analytes : (cur?cur._analytes:[]);
+      edits[key]={names: cur?cur.names:dispName, analytes: base.concat(macroSpecs)};
     }
-    saveCustom(store);
+    if(microSpecs.length){
+      const prev=store[key]&&store[key].specs?store[key].specs:[];
+      store[key]={disp:dispName, aliases, specs:prev.concat(microSpecs)};
+    }
+    if(metalSpecs.length){
+      const prev=tm[key]&&tm[key].metals?tm[key].metals:[];
+      tm[key]={disp:dispName, aliases, metals:prev.concat(metalSpecs)};
+    }
   }
-  const verb = editing?'Edited':'Added';
-  const dest = (editing&&EDIT_CONTEXT&&EDIT_CONTEXT.kind==='builtin')?'Macro Nutrient (catalog)':'Micro Nutrient (custom)';
-  addLog('CATALOG',`${verb} sample type "${dispName}" [${dest}]`,
-    {names:dispName, analytes:specs.map(a=>({el:a.el, compound:a.compound, factor:a.factor, claim:a.claim}))});
+  saveEdits(edits); saveCustom(store); saveTypeMetals(tm);
+
+  addLog('CATALOG',`${editing?'Edited':'Added'} sample type "${dispName}" — ${macroSpecs.length} macro, ${microSpecs.length} micro, ${metalSpecs.length} heavy-metal`,
+    {names:dispName, macro:macroSpecs, micro:microSpecs, metals:metalSpecs});
   EDIT_CONTEXT=null;
-  // if this came from a report's "Add new sample type…" picker, map that sample to it.
   if(PENDING_TYPE_LABEL!==null){ TYPE_OVERRIDES[PENDING_TYPE_LABEL]=dispName.split('/')[0].trim(); PENDING_TYPE_LABEL=null; closeCatalog(); }
   refreshCatalog();
   const msg=document.getElementById('saveMsg'); if(msg) msg.textContent='✅ Saved.';
 }
 
-function editBuiltin(key){
-  const e=EFF.find(x=>x._aliases[0].key===key); if(!e) return;
-  EDIT_CONTEXT={kind:'builtin', key, name:e.names,
-    specs:e._analytes.map(a=>({el:a.el, claim:a.claim, factor:a.factor}))};
-  renderAddForm();
-}
-function editCustom(key){
-  const r=loadCustom()[key]; if(!r) return;
-  EDIT_CONTEXT={kind:'custom', key, name:r.disp,
-    specs:(r.specs||[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor}))};
-  renderAddForm();
-}
-function deleteBuiltin(key){ requireAdmin('delete sample type', ()=>_deleteBuiltin(key)); }
-function _deleteBuiltin(key){
+// load all three categories of a type into the editor, tagged by table
+function editType(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
-  if(!confirm(`Delete sample type "${e?e.names:key}"? This hides it from matching on this computer.`)) return;
-  const hidden=loadHidden(); if(!hidden.includes(key)) hidden.push(key); saveHidden(hidden);
-  const edits=loadEdits(); delete edits[key]; saveEdits(edits);
-  const store=loadCustom(); delete store[key]; saveCustom(store);   // drop any added specs too
-  addLog('CATALOG','Deleted (hid) catalog sample type: '+(e?e.names:key));
-  refreshCatalog();
+  const cs=loadCustom()[key], ms=loadTypeMetals()[key];
+  const name=(e&&e.names) || (cs&&cs.disp) || (ms&&ms.disp) || key;
+  const macro=(e?e._analytes:[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, table:'macro', wl:a.wl}));
+  const micro=((cs&&cs.specs)||[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, table:'micro', wl:a.wl}));
+  const metals=((ms&&ms.metals)||[]).map(a=>({el:a.el, claim:a.limit, factor:1, table:'heavy', wl:a.wl}));
+  EDIT_CONTEXT={key, name, specs:macro.concat(micro,metals)};
+  renderAddForm();
 }
-function deleteCustom(key, addedOnBuiltin){ requireAdmin('delete sample type', ()=>_deleteCustom(key, addedOnBuiltin)); }
-function _deleteCustom(key, addedOnBuiltin){
-  const store=loadCustom(); const r=store[key];
-  if(!confirm(`Delete ${addedOnBuiltin?'the added specs for':'sample type'} "${r?r.disp:key}"?`)) return;
-  delete store[key]; saveCustom(store);
-  addLog('CATALOG',(addedOnBuiltin?'Removed added specs for ':'Deleted custom sample type: ')+(r?r.disp:key));
+function deleteType(key){ requireAdmin('delete sample type', ()=>_deleteType(key)); }
+function _deleteType(key){
+  const e=EFF.find(x=>x._aliases[0].key===key), cs=loadCustom()[key], ms=loadTypeMetals()[key];
+  const name=(e&&e.names)||(cs&&cs.disp)||(ms&&ms.disp)||key;
+  if(!confirm(`Delete sample type "${name}" entirely (macro, micro and heavy-metal specs)?`)) return;
+  const edits=loadEdits(); delete edits[key]; saveEdits(edits);
+  const store=loadCustom(); delete store[key]; saveCustom(store);
+  const tm=loadTypeMetals(); delete tm[key]; saveTypeMetals(tm);
+  addLog('CATALOG','Deleted sample type: '+name);
   refreshCatalog();
 }
 </script>
