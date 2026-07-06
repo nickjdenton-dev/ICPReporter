@@ -741,7 +741,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v2.5';   // bump on each release
+const APP_VERSION='v2.6';   // bump on each release
 
 /* =====================================================================
    LICENSE  — offline, signed annual key (Model A). The app holds only the
@@ -1063,8 +1063,23 @@ function loadTemplate(){ try{TEMPLATE=JSON.parse(localStorage.getItem(TPL_KEY))|
 loadTemplate();
 // migrate old saved report title to the new default
 if(TEMPLATE.title==='ICP-OES QUALITY REPORT'){ delete TEMPLATE.title; localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE)); }
+// One-time: installs that predate the neutral default logo keep their company (ExcelAg)
+// logo by pinning it into their own template; FRESH installs default to the app icon.
+(function keepLegacyLogo(){
+  const FLAG='icpLogoDefaultV1';
+  if(localStorage.getItem(FLAG)) return;
+  const hadData=['icpActivityLog','icpCustomSpecs','icpUsers','icpCatalogEdits','icpTemplate','icpTypeMetals']
+    .some(k=>localStorage.getItem(k));
+  if(hadData && !TEMPLATE.logo && typeof LOGO_DATA!=='undefined'){
+    TEMPLATE.logo=LOGO_DATA; localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE));
+  }
+  localStorage.setItem(FLAG,'1');
+})();
 function T(key){ return TEMPLATE[key]!==undefined ? TEMPLATE[key] : DEFAULT_TEMPLATE[key]; }
-function templateLogo(){ return TEMPLATE.logo || (typeof LOGO_DATA!=='undefined'?LOGO_DATA:'logo.jpg'); }
+// default report logo = the ICP Reporter app icon; users replace it via Master Template
+function templateLogo(){
+  return TEMPLATE.logo || (typeof ICON_LOGO!=='undefined'?ICON_LOGO:(typeof LOGO_DATA!=='undefined'?LOGO_DATA:'logo.jpg'));
+}
 // editable tagged span used inside reports + master editor
 function te(key){ return `<span data-tpl="${key}">${T(key)}</span>`; }
 
