@@ -555,10 +555,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <h1 style="margin:0">ICP Reporter</h1>
     </div>
     <span id="userBadge" style="margin-left:auto;font-size:13px;color:#0f4c81;font-weight:bold"></span>
-    <button class="act sec" onclick="openCatalog()">📋 Sample Types</button>
-    <button class="act sec admin-only" onclick="openMaster()">📝 Master Template</button>
+    <button class="act sec" onclick="openCatalog()">Sample Types</button>
+    <button class="act sec admin-only" onclick="openMaster()">Master Template</button>
     <button class="act sec admin-only" onclick="openUsers()">👤 Users</button>
-    <button class="act sec" onclick="openBug()">🐞 Report a bug</button>
+    <button class="act sec" onclick="openBug()">Report a bug</button>
     <button class="act sec" onclick="logout()">⎋ Log out</button>
   </div>
   <div class="row">
@@ -586,13 +586,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div id="warnings"></div>
   <div id="toolbar">
     <div style="position:relative;display:inline-block">
-      <button class="act" onclick="toggleDownloadMenu(event)">⬇️ Download ▾</button>
+      <button class="act" onclick="toggleDownloadMenu(event)">Download ▾</button>
       <div id="downloadMenu" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:4px;
            background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:230px;overflow:hidden">
-        <button class="dl-item" onclick="downloadAllWordSeparate();closeDownloadMenu()">⬇️ Each report → separate Word</button>
-        <button class="dl-item" onclick="downloadAllPdfSeparate();closeDownloadMenu()">⬇️ Each report → separate PDF</button>
-        <button class="dl-item" onclick="downloadRawExcel();closeDownloadMenu()">⬇️ Raw data (Excel)</button>
-        <button class="dl-item" onclick="window.print();closeDownloadMenu()">🖨️ Print all together</button>
+        <button class="dl-item" onclick="downloadAllWordSeparate();closeDownloadMenu()">Each report → separate Word</button>
+        <button class="dl-item" onclick="downloadAllPdfSeparate();closeDownloadMenu()">Each report → separate PDF</button>
+        <button class="dl-item" onclick="downloadRawExcel();closeDownloadMenu()">Raw data (Excel)</button>
+        <button class="dl-item" onclick="window.print();closeDownloadMenu()">Print all together</button>
       </div>
     </div>
     <span style="font-size:13px;color:#555;align-self:center">🔒 Reports open locked (view-only). Click the lock icon on a report to unlock editing; edits are included in exports.</span>
@@ -616,10 +616,28 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<button id="logBtn" onclick="openLog()" style="position:fixed;left:14px;bottom:14px;z-index:150;
-    background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:13px;
-    cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)">📋 Activity Log</button>
+<div style="position:fixed;left:14px;bottom:12px;z-index:150;display:flex;flex-direction:column;gap:3px;align-items:flex-start">
+  <button id="logBtn" onclick="openLog()" style="background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:8px 14px;
+      font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)">Activity Log</button>
+  <button onclick="openTerms()" style="background:none;border:0;color:#9aa6ad;font-size:11px;cursor:pointer;padding:0 2px">Terms &amp; Conditions</button>
+</div>
 <div id="verTag" style="position:fixed;right:10px;bottom:8px;font-size:11px;color:#9aa6ad;z-index:140"></div>
+
+<div id="termsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:520;overflow:auto;padding:24px">
+  <div style="background:#fff;max-width:720px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0;color:#0f4c81">Terms &amp; Conditions</h2>
+      <button id="termsClose" class="act sec" style="margin-left:auto" onclick="closeTerms()">✕ Close</button>
+    </div>
+    <div id="termsBody" style="white-space:pre-wrap;font-size:12.5px;line-height:1.5;max-height:60vh;overflow:auto;
+         border:1px solid #ddd;border-radius:5px;padding:12px;background:#fafbfc"></div>
+    <div id="termsGate" style="display:none;gap:10px;margin-top:14px;align-items:center">
+      <button class="act" onclick="agreeTerms()">✓ I Agree</button>
+      <button class="act sec" onclick="declineTerms()">Decline</button>
+      <span style="font-size:12px;color:#777">You must accept to use the software.</span>
+    </div>
+  </div>
+</div>
 
 <div id="logModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:210;
      overflow:auto;padding:30px">
@@ -631,8 +649,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act sec" style="margin-left:auto" onclick="closeLog()">✕ Close</button>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px">
-      <button class="act" onclick="exportLog()">⬇️ Export .txt</button>
-      <button class="act sec" onclick="clearLog()">🗑 Clear log</button>
+      <button class="act" onclick="exportLog()">Export .txt</button>
+      <button class="act sec" onclick="clearLog()">Clear log</button>
       <span style="margin-left:8px">Auto-delete entries older than
         <input id="logRetention" type="number" min="1" style="width:70px;padding:4px" onchange="setRetention()"> days</span>
     </div>
@@ -644,14 +662,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <div id="bugModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:230;overflow:auto;padding:30px">
   <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;margin-bottom:8px">
-      <h2 style="margin:0;color:#0f4c81">🐞 Report a bug</h2>
+      <h2 style="margin:0;color:#0f4c81">Report a bug</h2>
       <button class="act sec" style="margin-left:auto" onclick="closeBug()">✕ Close</button>
     </div>
-    <div style="font-size:13px;color:#666;margin-bottom:10px">Describe what happened. Your current session's activity log is automatically included to help diagnose the issue.</div>
+    <div style="font-size:13px;color:#666;margin-bottom:10px">Describe what happened. Your current session's activity log is automatically included and sent to the developers to help diagnose the issue.</div>
     <textarea id="bugText" placeholder="What were you doing? What went wrong? What did you expect?"
        style="width:100%;height:130px;padding:9px;border:1px solid #aaa;border-radius:5px;font-size:13px;resize:vertical"></textarea>
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
-      <button class="act" onclick="submitBug()">Send report</button>
+      <button class="act" onclick="submitBug()">Send to developers</button>
       <span id="bugMsg" style="font-size:13px;color:#0f4c81"></span>
     </div>
   </div>
@@ -729,8 +747,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div style="background:#fff;max-width:960px;margin:0 auto;border-radius:8px;padding:20px 24px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <h2 style="margin:0;color:#0f4c81">Master Report Template</h2>
-      <button class="act" onclick="saveMaster()">💾 Save changes</button>
-      <label class="act sec" style="cursor:pointer">🖼️ Change logo
+      <button class="act" onclick="saveMaster()">Save changes</button>
+      <label class="act sec" style="cursor:pointer">Change logo
         <input id="masterLogoInput" type="file" accept="image/*" style="display:none" onchange="changeMasterLogo(event)"></label>
       <button class="act sec" style="margin-left:auto" onclick="closeMaster()">✕ Close</button>
     </div>
@@ -741,7 +759,60 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v2.6';   // bump on each release
+const APP_VERSION='v3.2';   // bump on each release
+
+/* Terms & Conditions text — edit freely (fill the [bracketed] items). */
+const TERMS_TEXT=
+`ICP REPORTER — TERMS AND CONDITIONS / END-USER LICENSE AGREEMENT
+Last updated: July 6, 2026
+
+These Terms and Conditions ("Terms") govern the license and use of the ICP Reporter software ("Software") provided by ICP Report LLC ("Licensor," "we," "us"). By entering a license key, installing, or using the Software, you ("Licensee," "you," or "your organization") agree to these Terms. If you do not agree, do not use the Software.
+
+1. LICENSE GRANT
+Subject to payment of the applicable fees and compliance with these Terms, Licensor grants Licensee a non-exclusive, non-transferable, revocable license to use the Software for the Licensee's internal business purposes for the duration of the paid license term. A single license key is issued per organization and may be used on the computers of that organization's personnel.
+
+2. LICENSE TERM AND RENEWAL
+The Software is licensed on a time-limited subscription basis. The license term is encoded in the license key and expires on its stated date. Continued use after expiration requires a new valid key issued upon renewal and payment. Licensor is under no obligation to issue or renew a key.
+
+3. RESTRICTIONS
+Licensee shall not, and shall not permit any third party to: (a) copy, resell, sublicense, rent, lease, distribute, or share the Software or any license key outside the licensed organization; (b) reverse engineer, decompile, disassemble, or attempt to derive source code, keys, or algorithms, except as permitted by law; (c) remove or alter any proprietary notices; (d) circumvent or tamper with the license activation or any security mechanism; or (e) use the Software to develop a competing product.
+
+4. OWNERSHIP
+The Software, including all code, design, logos, and documentation, is and remains the exclusive property of Licensor and is protected by copyright and other intellectual-property laws. No rights are granted except the limited license expressly stated. Data, reports, and content that you input or generate remain your property.
+
+5. DATA PRIVACY AND HANDLING
+The Software runs locally in the Licensee's web browser. The Licensee's raw data, reports, user accounts, activity logs, and configuration are stored on the Licensee's own device(s) and are not transmitted to or collected by Licensor. Licensee is solely responsible for the security, backup, retention, and confidentiality of its own data. Licensor has no access to, and accepts no responsibility for, Licensee data.
+
+6. TOOL FUNCTION; NO CERTIFICATION
+The Software is a data-processing and reporting aid intended to assist qualified laboratory personnel. It is provided as a convenience tool and does not constitute laboratory accreditation, certification, or professional analytical judgment. The Software is not certified or validated against any particular standard or method. Licensee is responsible for determining the Software's suitability for its intended use.
+
+7. LICENSEE RESPONSIBILITY FOR RESULTS
+Measurement conversions, wavelength selections, label-claim comparisons, and all outputs are generated from data and configuration supplied and controlled by the Licensee. Licensee is solely responsible for reviewing, verifying, and approving the accuracy of all reports and results before use, release, or reliance. Licensor is not responsible for errors arising from incorrect input data, misconfiguration, instrument calibration, sample handling, or the Licensee's interpretation of results.
+
+8. DISCLAIMER OF WARRANTIES
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, OR NON-INFRINGEMENT. LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED, OR THAT RESULTS WILL BE ACCURATE OR RELIABLE.
+
+9. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, DATA, REPUTATION, OR BUSINESS, ARISING OUT OF OR RELATED TO THE SOFTWARE OR THESE TERMS, EVEN IF ADVISED OF THE POSSIBILITY. LICENSOR'S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE FEES PAID BY LICENSEE FOR THE SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.
+
+10. SUPPORT AND UPDATES
+Support is provided at Licensor's discretion via the contact below. Licensor may issue updates from time to time but is not obligated to provide any specific update, feature, or continued availability.
+
+11. TERMINATION
+This license terminates automatically upon expiration of the license term or upon your breach of these Terms. Upon termination you must cease using the Software. Sections 3–9 survive termination.
+
+12. FEES
+License fees are as quoted at purchase and are non-refundable except as required by law. Fees are exclusive of applicable taxes.
+
+13. GOVERNING LAW
+These Terms are governed by the laws of the State of Florida, without regard to conflict-of-law principles. Any dispute shall be resolved exclusively in the state or federal courts located in Palm Beach County, Florida.
+
+14. ENTIRE AGREEMENT
+These Terms constitute the entire agreement between the parties regarding the Software and supersede all prior agreements. If any provision is held unenforceable, the remainder stays in effect.
+
+15. CONTACT
+ICP Report LLC — Palm Beach County, Florida, USA.
+For support or inquiries, please use the in-app "Report a Bug / Send to Developers" feature.`;
 
 /* =====================================================================
    LICENSE  — offline, signed annual key (Model A). The app holds only the
@@ -777,8 +848,13 @@ function showLicense(reason,payload){
   setTimeout(()=>document.getElementById('licInput').focus(),50);
 }
 function afterLicense(){
-  // license OK -> proceed to the normal login gate
+  // license + terms OK -> proceed to the normal login gate
   if(!checkSession()) showLogin();
+}
+// after a valid license: require Terms acceptance once, then continue
+function proceedAfterLicense(){
+  if(localStorage.getItem(TERMS_KEY)) afterLicense();
+  else showTermsGate();
 }
 async function activateLicense(){
   const str=document.getElementById('licInput').value.trim();
@@ -787,7 +863,7 @@ async function activateLicense(){
     localStorage.setItem(LICENSE_KEY_STORE,str); LICENSE_INFO=res.payload;
     document.getElementById('licModal').style.display='none';
     addLog('LICENSE','Activated — licensed to "'+(res.payload.c||'?')+'", expires '+(res.payload.exp||'?'));
-    afterLicense();
+    proceedAfterLicense();
   }else{
     document.getElementById('licErr').textContent = res.reason==='expired'
       ? '❌ This license expired on '+(res.payload&&res.payload.exp)+'. Enter a current key.'
@@ -798,8 +874,29 @@ async function activateLicense(){
 async function startLicenseGate(){
   const stored=localStorage.getItem(LICENSE_KEY_STORE);
   const res = stored ? await verifyLicenseString(stored) : {ok:false,reason:'none'};
-  if(res.ok){ LICENSE_INFO=res.payload; afterLicense(); }
+  if(res.ok){ LICENSE_INFO=res.payload; proceedAfterLicense(); }
   else { localStorage.removeItem(LICENSE_KEY_STORE); showLicense(res.reason,res.payload); }
+}
+/* ---- Terms & Conditions ---- */
+const TERMS_KEY='icpTermsAccepted';
+function showTerms(text,gate){
+  document.getElementById('termsBody').textContent=text;
+  document.getElementById('termsGate').style.display=gate?'flex':'none';
+  document.getElementById('termsClose').style.display=gate?'none':'inline-block';
+  document.getElementById('termsModal').style.display='block';
+  document.getElementById('termsBody').scrollTop=0;
+}
+function showTermsGate(){ showTerms(TERMS_TEXT,true); }
+function openTerms(){ showTerms(TERMS_TEXT,false); }
+function closeTerms(){ document.getElementById('termsModal').style.display='none'; }
+function agreeTerms(){
+  localStorage.setItem(TERMS_KEY, new Date().toISOString());
+  addLog('TERMS','Terms & Conditions accepted'+(LICENSE_INFO?' — licensed to "'+LICENSE_INFO.c+'"':''));
+  closeTerms(); afterLicense();
+}
+function declineTerms(){
+  addLog('TERMS','Terms & Conditions declined');
+  alert('You must accept the Terms & Conditions to use ICP Reporter.');
 }
 
 /* =====================================================================
@@ -877,43 +974,56 @@ async function exportLog(){
 }
 
 /* =====================================================================
-   BUG REPORTING  — comments + session log, sent to the developer.
-   Set BUG_REPORT_EMAIL below to enable direct e-mail. Until then, the
-   report is saved to a .txt file the user can send manually.
+   BUG REPORTING  — comments + session log, sent silently to the developers
+   via a FormSubmit relay (no user email client, no account, no key).
+   The developer address is obfuscated; the FIRST report triggers a one-time
+   confirmation email FormSubmit sends to that address (click once to activate).
    ===================================================================== */
-const BUG_REPORT_EMAIL='';   // <-- put the developer's email here later
+const BUG_ENDPOINT='https://formsubmit.co/ajax/'+atob('Y3Nhc3BhZ3lyaWFAZ21haWwuY29t');
 function openBug(){ document.getElementById('bugText').value=''; document.getElementById('bugMsg').textContent=''; document.getElementById('bugModal').style.display='block'; setTimeout(()=>document.getElementById('bugText').focus(),50); }
 function closeBug(){ document.getElementById('bugModal').style.display='none'; }
-function submitBug(){
-  const comments=document.getElementById('bugText').value.trim();
-  if(!comments){ document.getElementById('bugMsg').textContent='⚠️ Please describe the issue first.'; return; }
-  addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
+function buildBugReport(comments){
   const arr=loadLog();
   const logText=arr.map(logLine).join('\n\n');
-  const stamp=new Date().toLocaleString('en-US');
-  const report=['ICP Reporter — Bug Report',
+  return {arr, text:['ICP Reporter — Bug Report',
     'Version: '+APP_VERSION,
-    'Date: '+stamp,
+    'Date: '+new Date().toLocaleString('en-US'),
     'User: '+(CURRENT_USER||'-'),
     'License: '+(LICENSE_INFO?(LICENSE_INFO.c+' (exp '+LICENSE_INFO.exp+')'):'-'),
     '='.repeat(70),'',
     'DESCRIPTION:', comments, '',
     '='.repeat(70),
-    'SESSION ACTIVITY LOG ('+arr.length+' events):','', logText].join('\n');
-  // always save a copy the user can attach/keep
+    'SESSION ACTIVITY LOG ('+arr.length+' events):','', logText].join('\n')};
+}
+function saveBugFile(text){
   const fname='ICP Reporter Bug Report '+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';
-  const blob=new Blob([report],{type:'text/plain'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
-  if(BUG_REPORT_EMAIL){
-    const subject=encodeURIComponent('ICP Reporter bug report — '+APP_VERSION);
-    const body=encodeURIComponent(comments+'\n\n(The full session log was downloaded as "'+fname+'" — please attach it to this email.)');
-    window.location.href='mailto:'+BUG_REPORT_EMAIL+'?subject='+subject+'&body='+body;
-    document.getElementById('bugMsg').textContent='✅ Opening your email — attach the downloaded file and send.';
-  }else{
-    document.getElementById('bugMsg').textContent='✅ Report saved as a .txt file. (Direct email will be enabled once a developer address is set.)';
-  }
-  setTimeout(closeBug,2500);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download=fname; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+async function submitBug(){
+  const comments=document.getElementById('bugText').value.trim();
+  const msg=document.getElementById('bugMsg');
+  if(!comments){ msg.textContent='⚠️ Please describe the issue first.'; return; }
+  addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
+  const {arr, text}=buildBugReport(comments);
+  // Preferred: send silently to the developers (no email app opens, no key)
+  msg.textContent='Sending…';
+  try{
+    const res=await fetch(BUG_ENDPOINT,{
+      method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+      body:JSON.stringify({_subject:'ICP Reporter bug report — '+APP_VERSION,
+        name:'ICP Reporter '+APP_VERSION, message:text, _template:'box'})});
+    const j=await res.json();
+    if(j && (j.success===true || j.success==='true')){
+      msg.textContent='✅ Report sent to the developers. Thank you!';
+      addLog('BUG','Report delivered to developers'); setTimeout(closeBug,2000); return;
+    }
+  }catch(e){}
+  // Fallback (offline, or relay not yet activated): save a file to forward manually
+  msg.textContent='⚠️ Could not send automatically — saving a copy instead.';
+  saveBugFile(text);
+  msg.textContent='✅ Report saved as a file. Please forward it to your provider.';
+  setTimeout(closeBug,2800);
 }
 
 /* =====================================================================
@@ -1013,7 +1123,7 @@ function renderUsers(){
   let rows=`<div style="${item}"><b>admin</b> <span style="color:#888">— Admin (built-in failsafe, cannot be removed)</span></div>`;
   rows+=Object.keys(users).map(u=>`<div style="${item}"><b>${u}</b>
       <span style="color:#888">— ${(users[u].role||'user')==='admin'?'Admin':'User'}</span>
-      <button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='removeUser(${JSON.stringify(u)})'>🗑 Remove</button></div>`).join('');
+      <button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='removeUser(${JSON.stringify(u)})'>Remove</button></div>`).join('');
   document.getElementById('usersList').innerHTML=rows;
 }
 function addUser(){
@@ -1558,7 +1668,7 @@ function analyteRow(row,elemCols,a,mode,wlOverrides,table){
   if(v.value===null)   kind='na';
   else if(v.value<=0)  kind='nd';
   else {kind='value'; value=v.value*(a.factor||1);}
-  return {el:a.el, compound:a.compound, kind, value,
+  return {el:a.el, compound:a.compound, name:a.name, form:a.form, factor:a.factor||1, kind, value,
           claim:a.claim!=null?a.claim:null, phosphite:!!a.phosphite, wl:wlDisp(v)};
 }
 
@@ -1727,7 +1837,7 @@ function buildErrBanner(s){
         </select></span>`;
     controls=`<div style="margin-top:7px">
       <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Dismiss</button>
-      <button type="button" style="${btn}" onclick='revealPicker(this)'>✎ Change…</button>${pick}</div>`;
+      <button type="button" style="${btn}" onclick='revealPicker(this)'>Change…</button>${pick}</div>`;
   }
   return `<div contenteditable="false" style="border:1px solid ${col.b};background:${col.bg};color:${col.t};
       padding:8px 10px;margin-bottom:14px;font-size:13px;border-radius:4px">
@@ -1808,8 +1918,13 @@ function reportHTML(s,idx){
     ? `<td style="${S.td}"><span class="wlcell" data-i="${idx}" data-tbl="${tbl}" data-el="${el}" title="Click to change the wavelength / data source">${disp}</span></td>`
     : `<td style="${S.td}">${disp}</td>`;
 
+  // analyte name cell: "Name (Form)" + tiny gray coeff note when a conversion applies
+  const coeffNote='font-size:9px;font-style:italic;color:#999;margin-top:1px';
+  const nameCell=(a,withStar)=>{ const ac=analyteCell(a);
+    return cell('<b>'+ac.label+(withStar?star(a):'')+'</b>'+(ac.coeff?`<div style="${coeffNote}">conv. coefficient = ${ac.coeff}</div>`:'')); };
+
   const macroRows=s.macro.map(m=>`
-    <tr>${cell('<b>'+m.compound+star(m)+'</b>')}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
+    <tr>${nameCell(m,true)}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
   // phosphite footnote shown only when a "*" appears in the table
   const footnote=s.hasPhosphite?`<div style="font-size:11px;font-style:italic;color:#888;margin:2px 0 6px">
       ${te('phosphiteNote')}</div>`:'';
@@ -1817,7 +1932,7 @@ function reportHTML(s,idx){
   // micronutrient table: list spec'd micronutrients; if none, one "n/a" row
   const addRows=(s.additional&&s.additional.length)
     ? s.additional.map(a=>`
-        <tr>${cell('<b>'+a.compound+'</b>')}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
+        <tr>${nameCell(a,false)}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
     : `<tr>${cell('n/a').repeat(4)}</tr>`;
 
   const metalRows=s.metals.map(hm=>`
@@ -1907,7 +2022,7 @@ function rawPreviewHTML(){
   }).join('');
   return `<div class="raw-preview" style="background:#fff;width:92%;max-width:1500px;
        box-shadow:0 2px 10px rgba(0,0,0,.18);border-radius:6px;padding:14px 16px;margin-bottom:10px">
-     <div style="font-weight:bold;color:#0f4c81;font-size:15px;margin-bottom:8px">📄 Raw Data Preview — ${rawDataTitle()}</div>
+     <div style="font-weight:bold;color:#0f4c81;font-size:15px;margin-bottom:8px">Raw Data Preview — ${rawDataTitle()}</div>
      <div style="overflow:auto;max-height:360px;border:1px solid #ddd">
        <table style="border-collapse:collapse;font-family:Arial,sans-serif">${rows}</table>
      </div>
@@ -1923,7 +2038,7 @@ function render(){
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
         ${s.error?'<span style="color:'+(s.error.soft?'#b8860b':'#c0392b')+';font-weight:bold">'+(s.error.soft?'⚠️ ':'⛔ ')+s.error.code+'</span>':''}
         <span style="position:relative;display:inline-block">
-          <button onclick="toggleRepDl(${i},event)">⬇️ Download ▾</button>
+          <button onclick="toggleRepDl(${i},event)">Download ▾</button>
           <div id="repDl${i}" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:2px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:120px;overflow:hidden">
             <button class="dl-item" onclick="oneWord(${i});closeRepDl()">Word</button>
             <button class="dl-item" onclick="onePdf(${i});closeRepDl()">PDF</button>
@@ -1994,13 +2109,16 @@ function openWlMenu(cell){
   closeWlMenu();
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
+  const optWl=OPTIMUM_WAVELENGTHS[el];
   const cols=(ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl);
   const cur=(s.wlOverrides&&s.wlOverrides[tbl+':'+el]) || 'auto';
   const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}',${JSON.stringify(String(val))})">${cur==val?'✓ ':''}${label}</button>`;
-  let html=opt('auto','Auto (global setting)')+opt('optimum','Optimum line')+opt('average','Average of all lines');
-  if(cols.length) html+='<div style="border-top:1px solid #eee;margin:2px 0"></div>'+
-    cols.map(c=>opt(c.wl, c.wl+' nm')).join('');
-  else html+='<div style="padding:6px 12px;color:#888">No lines in loaded data</div>';
+  let html=opt('auto','Sample-type default')
+    +opt('optimum','Optimum line'+(optWl?` (${optWl} nm)`:''))
+    +opt('average','Average of all lines');
+  const alt=cols.filter(c=>!(optWl && Math.abs(c.wl-optWl)<0.01));
+  if(alt.length) html+='<div style="border-top:1px solid #eee;margin:2px 0"></div>'+
+    alt.map(c=>opt(c.wl, c.wl+' nm')).join('');
   const menu=document.createElement('div'); menu.id='wlMenu'; menu.innerHTML=html;
   document.body.appendChild(menu);
   const r=cell.getBoundingClientRect();
@@ -2279,8 +2397,8 @@ function renderCatalogList(){
   const thL=tdL+';background:#f2f2f2;font-weight:bold';
   const act='cursor:pointer;border:1px solid #aaa;border-radius:4px;padding:2px 8px;margin:0 2px;font-size:11px;background:#fff';
   const actions=(key)=> adm?`<td style="${tdL};white-space:nowrap">
-      <button style="${act}" onclick='editType(${JSON.stringify(key)})'>✎ Edit</button>
-      <button style="${act};color:#922" onclick='deleteType(${JSON.stringify(key)})'>🗑 Delete</button></td>`:'';
+      <button style="${act}" onclick='editType(${JSON.stringify(key)})'>Edit</button>
+      <button style="${act};color:#922" onclick='deleteType(${JSON.stringify(key)})'>Delete</button></td>`:'';
   const metalSummary=list=>list.map(m=>`${m.name||m.el} (≤${m.limit}%)`).join('; ');
 
   // gather every type key across macro (EFF), micro (custom), heavy (typeMetals)
@@ -2308,55 +2426,78 @@ function renderCatalogList(){
     </table>
     <div style="color:#888;font-size:11px;margin-top:5px">A report shows only the tables its sample type defines (Macro, Micro and/or Heavy Metals).${adm?' All types are user-defined and saved on this computer.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
     ${adm?`<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="act sec" style="font-size:12px" onclick="exportLibrary()">⬇️ Export sample types</button>
-      <label class="act sec" style="font-size:12px;cursor:pointer">⬆️ Import sample types
+      <button class="act sec" style="font-size:12px" onclick="exportLibrary()">Export sample types</button>
+      <label class="act sec" style="font-size:12px;cursor:pointer">Import sample types
         <input type="file" accept=".json,application/json" style="display:none" onchange="importLibrary(event)"></label>
     </div>`:''}`;
 }
 
 const CONV_OPTIONS=[
-  {label:'Elemental (no conversion)', factor:1},
-  {label:'P → P₂O₅ (×2.2914)',        factor:2.2914},
-  {label:'K → K₂O (×1.2046)',         factor:1.2046},
-  {label:'Ca → CaO (×1.3992)',        factor:1.3992},
-  {label:'Custom factor…',            factor:'custom'}
+  {label:'Elemental (no conversion)', factor:1,      form:''},
+  {label:'P → P₂O₅ (×2.2914)',        factor:2.2914, form:'P₂O₅'},
+  {label:'K → K₂O (×1.2046)',         factor:1.2046, form:'K₂O'},
+  {label:'Ca → CaO (×1.3992)',        factor:1.3992, form:'CaO'},
+  {label:'Custom factor…',            factor:'custom',form:''}
 ];
-// every measurable element is selectable (nutrients + heavy metals)
-const ELEMENT_CHOICES=Object.keys(OPTIMUM_WAVELENGTHS).sort();
-function elLabel(e){ return COMPOUND_INFO[e]?COMPOUND_INFO[e].compound : (ELEMENT_NAMES[e]?ELEMENT_NAMES[e]+' ('+e+')':e); }
+const FORM_BY_FACTOR={2.2914:'P₂O₅', 1.2046:'K₂O', 1.3992:'CaO'};
+// user-added elements (for elements not in the standard list, e.g. future test additions)
+const CUSTOMEL_KEY='icpCustomElements';
+function loadCustomEls(){ try{return JSON.parse(localStorage.getItem(CUSTOMEL_KEY))||{};}catch(e){return {};} }
+function saveCustomEls(o){ localStorage.setItem(CUSTOMEL_KEY, JSON.stringify(o)); }
+function elementChoices(){ return [...new Set([...Object.keys(OPTIMUM_WAVELENGTHS), ...Object.keys(loadCustomEls())])].sort(); }
+function elName(e){ return ELEMENT_NAMES[e] || loadCustomEls()[e] || e; }
+function elLabel(e){ return COMPOUND_INFO[e]?COMPOUND_INFO[e].compound : (ELEMENT_NAMES[e]||loadCustomEls()[e] ? elName(e)+' ('+e+')' : e); }
+// analyte display: "Name (Form)" + coefficient note when converted; plain name otherwise
+function analyteCell(a){
+  const factor=a.factor||1, conv=factor!==1;
+  const base=a.name||ELEMENT_NAMES[a.el]||loadCustomEls()[a.el]||a.el;
+  const form=a.form||(conv?FORM_BY_FACTOR[factor]:null);
+  let label;
+  if(conv && form) label=`${base} (${form})`;
+  else if(!conv && a.compound && !a.name) label=a.compound;   // legacy elemental e.g. "Calcium (Ca)"
+  else label=base;
+  return {label, coeff: conv?factor:null};
+}
 function convIndexForFactor(f){
   const i=CONV_OPTIONS.findIndex(o=>o.factor===f);
   return i>=0?i:CONV_OPTIONS.length-1;   // custom
 }
-// wavelength dropdown options for a spec row (Auto / Optimum / Average / specific lines)
+// wavelength dropdown options for a spec row: Optimum (default) / alternate lines / Average
 function wlOptionsHTML(el, sel){
-  sel = (sel==null||sel==='') ? 'auto' : String(sel);
-  const modeLbl = (typeof MODE!=='undefined'&&MODE==='average')?'Average':'Optimum';
-  let out=`<option value="auto" ${sel==='auto'?'selected':''}>Auto (global: ${modeLbl})</option>`+
-          `<option value="optimum" ${sel==='optimum'?'selected':''}>Optimum line</option>`+
-          `<option value="average" ${sel==='average'?'selected':''}>Average all</option>`;
+  const opt=OPTIMUM_WAVELENGTHS[el];
+  sel = (sel==null||sel===''||sel==='auto') ? 'optimum' : String(sel);
+  if(opt && /^\d/.test(sel) && Math.abs(parseFloat(sel)-opt)<0.01) sel='optimum';   // that line IS optimum
+  let out=`<option value="optimum" ${sel==='optimum'?'selected':''}>Optimum line${opt?` (${opt} nm)`:''}</option>`;
   (ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl).forEach(c=>{
+    if(opt && Math.abs(c.wl-opt)<0.01) return;   // optimum already listed above
     out+=`<option value="${c.wl}" ${sel==String(c.wl)?'selected':''}>${c.wl} nm</option>`; });
+  out+=`<option value="average" ${sel==='average'?'selected':''}>Average of all lines</option>`;
   return out;
 }
 function specRowHTML(sp){
   sp=sp||{};
-  const els=ELEMENT_CHOICES.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('');
+  const choices=elementChoices();
+  const els=choices.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('')
+    +`<option value="__add__">+ Add custom element…</option>`;
   const ci=sp.factor!=null?convIndexForFactor(sp.factor):0;
   const isCustom=CONV_OPTIONS[ci].factor==='custom';
   const conv=CONV_OPTIONS.map((o,i)=>`<option value="${i}" ${i===ci?'selected':''}>${o.label}</option>`).join('');
   const isHeavy=sp.table==='heavy';
-  return `<div class="specRow" style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
-    <select class="sEl" style="flex:2;padding:5px">${els}</select>
+  const converted = !isHeavy && CONV_OPTIONS[ci].factor!==1;
+  const molVal = sp.form || (CONV_OPTIONS[ci].form||'');
+  const molRO = converted && !isCustom;   // preset forms are read-only
+  return `<div class="specRow" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+    <select class="sEl" style="flex:2;padding:5px;min-width:150px">${els}</select>
     <input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit %':'claim %'}" value="${sp.claim!=null?sp.claim:''}" style="flex:1;padding:5px;min-width:70px">
-    <select class="sConv" style="flex:2;padding:5px" ${isHeavy?'disabled':''}>${conv}</select>
-    <input class="sFactor" type="number" step="any" placeholder="factor" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:74px;padding:5px;display:${isCustom&&!isHeavy?'':'none'}">
+    <select class="sConv" style="flex:2;padding:5px;min-width:150px" ${isHeavy?'disabled':''}>${conv}</select>
+    <input class="sFactor" type="number" step="any" placeholder="coefficient" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:90px;padding:5px;display:${isCustom&&!isHeavy?'':'none'}">
+    <input class="sMol" type="text" placeholder="molecular form (e.g. P₂O₅)" value="${molVal.replace(/"/g,'&quot;')}" ${molRO?'readonly':''} style="width:140px;padding:5px;display:${converted?'':'none'};${molRO?'background:#f2f2f2':''}">
     <select class="sTable" title="Which report table" style="padding:5px">
       <option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option>
       <option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option>
       <option value="heavy" ${sp.table==='heavy'?'selected':''}>Heavy Metal</option>
     </select>
-    <select class="sWl" title="Wavelength / data source" style="padding:5px;max-width:150px">${wlOptionsHTML(sp.el||ELEMENT_CHOICES[0], sp.wl)}</select>
+    <select class="sWl" title="Wavelength / data source" style="padding:5px;max-width:140px">${wlOptionsHTML(sp.el||choices[0], sp.wl)}</select>
     <button type="button" class="act sec" onclick="this.parentNode.remove()">✕</button>
   </div>`;
 }
@@ -2396,32 +2537,42 @@ function renderAddForm(){
     <div id="specRows">${specHTML}</div>
     <button type="button" class="act sec" onclick="document.getElementById('specRows').insertAdjacentHTML('beforeend', specRowHTML())">+ Add analyte</button>
     <div style="margin-top:12px">
-      <button type="button" class="act" onclick="saveSpec()">💾 Save</button>
+      <button type="button" class="act" onclick="saveSpec()">Save</button>
       ${editing?'<button type="button" class="act sec" onclick="cancelEdit()">✕ Cancel edit</button>':''}
       <span id="saveMsg" style="margin-left:10px;font-size:13px;color:#0f4c81"></span>
     </div>`;
-  // delegated handler: custom-factor visibility + smart Macro/Micro routing + heavy-metal mode
+  // delegated handler: conversion coefficient + molecular form + routing + custom element
   document.getElementById('specRows').addEventListener('change',e=>{
     const row=e.target.closest('.specRow'); if(!row) return;
+    const setMol=(idx)=>{ const o=CONV_OPTIONS[idx], mol=row.querySelector('.sMol'), heavy=row.querySelector('.sTable').value==='heavy';
+      const converted=o.factor!==1 && !heavy;
+      mol.style.display=converted?'':'none';
+      if(o.factor==='custom'){ mol.readOnly=false; mol.style.background=''; }
+      else { mol.value=o.form||''; mol.readOnly=true; mol.style.background='#f2f2f2'; } };
     if(e.target.classList.contains('sConv')){
-      const cf=CONV_OPTIONS[+e.target.value].factor;
+      const idx=+e.target.value, cf=CONV_OPTIONS[idx].factor;
       row.querySelector('.sFactor').style.display = cf==='custom'?'':'none';
-      if(cf===2.2914||cf===1.2046) row.querySelector('.sTable').value='macro';   // P₂O₅/K₂O -> Macro
+      if(cf===2.2914||cf===1.2046||cf===1.3992) row.querySelector('.sTable').value='macro';
+      setMol(idx);
     }
     if(e.target.classList.contains('sEl')){
-      const el=e.target.value;
-      if(el==='P'||el==='K'){
-        row.querySelector('.sConv').value = el==='P'?'1':'2';   // P→P₂O₅ / K→K₂O
-        row.querySelector('.sFactor').style.display='none';
-        row.querySelector('.sTable').value='macro';
+      if(e.target.value==='__add__'){   // add a brand-new element to the list
+        const sym=(prompt('Enter the element symbol (e.g. Si, Ti):')||'').trim();
+        if(sym){ const nm=(prompt('Enter the element name (e.g. Silicon):')||sym).trim();
+          const store=loadCustomEls(); store[sym]=nm; saveCustomEls(store);
+          addLog('CATALOG','Added custom element: '+sym+' ('+nm+')'); }
+        renderAddForm(); return;
       }
-      row.querySelector('.sWl').innerHTML=wlOptionsHTML(el,'auto');   // refresh available lines
+      const el=e.target.value;
+      if(el==='P'||el==='K'){ row.querySelector('.sConv').value = el==='P'?'1':'2'; row.querySelector('.sTable').value='macro'; setMol(el==='P'?1:2); }
+      row.querySelector('.sWl').innerHTML=wlOptionsHTML(el,'auto');
     }
     if(e.target.classList.contains('sTable')){
       const heavy=e.target.value==='heavy';
-      row.querySelector('.sConv').disabled=heavy;                 // metals aren't converted
+      row.querySelector('.sConv').disabled=heavy;
       row.querySelector('.sClaim').placeholder = heavy?'limit %':'claim %';
-      if(heavy) row.querySelector('.sFactor').style.display='none';
+      if(heavy){ row.querySelector('.sFactor').style.display='none'; row.querySelector('.sMol').style.display='none'; }
+      else setMol(+row.querySelector('.sConv').value);
     }
   });
 }
@@ -2436,14 +2587,18 @@ function cancelEdit(){ EDIT_CONTEXT=null; renderAddForm(); }
 function collectSpecs(){
   return [...document.querySelectorAll('#specRows .specRow')].map(r=>{
     const el=r.querySelector('.sEl').value;
+    if(el==='__add__') return {el:''};
     const claimV=r.querySelector('.sClaim').value;
     const table=r.querySelector('.sTable').value;
     const cOpt=CONV_OPTIONS[+r.querySelector('.sConv').value];
     const factor = table==='heavy' ? 1 : (cOpt.factor==='custom' ? parseFloat(r.querySelector('.sFactor').value)||1 : cOpt.factor);
+    const form = (factor!==1 && table!=='heavy') ? (r.querySelector('.sMol').value.trim()||CONV_OPTIONS[+r.querySelector('.sConv').value].form||'') : '';
     const wlSel=r.querySelector('.sWl').value;
     const wl = (wlSel==='auto') ? undefined : wlSel;   // 'auto' = follow global mode
-    const info=COMPOUND_INFO[el]||{compound:elLabel(el)};
-    return {el, compound:info.compound, factor, claim:claimV===''?null:parseFloat(claimV), table, wl};
+    const name = elName(el);
+    // compound: "Name (Form)" when converted, else "Name (Symbol)" style
+    const compound = form ? `${name} (${form})` : (COMPOUND_INFO[el]?COMPOUND_INFO[el].compound:elLabel(el));
+    return {el, name, form:form||undefined, compound, factor, claim:claimV===''?null:parseFloat(claimV), table, wl};
   }).filter(s=>s.el);
 }
 function saveSpec(){ requireAdmin('add / edit sample type', _saveSpec); }
@@ -2460,8 +2615,8 @@ function _saveSpec(){
   const all=collectSpecs();
   if(!all.length){ document.getElementById('saveMsg').textContent='⚠️ Add at least one analyte.'; return; }
   // route each analyte to its table: Macro -> edits, Micro -> custom, Heavy Metal -> typeMetals
-  const macroSpecs=all.filter(a=>a.table==='macro').map(a=>({el:a.el,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
-  const microSpecs=all.filter(a=>a.table==='micro').map(a=>({el:a.el,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
+  const macroSpecs=all.filter(a=>a.table==='macro').map(a=>({el:a.el,name:a.name,form:a.form,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
+  const microSpecs=all.filter(a=>a.table==='micro').map(a=>({el:a.el,name:a.name,form:a.form,compound:a.compound,factor:a.factor,claim:a.claim,wl:a.wl}));
   const metalSpecs=all.filter(a=>a.table==='heavy').map(a=>({el:a.el,name:a.compound,limit:a.claim!=null?a.claim:0,wl:a.wl}));
 
   const key=norm(dispName.split('/')[0]);
@@ -2504,8 +2659,8 @@ function editType(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
   const cs=loadCustom()[key], ms=loadTypeMetals()[key];
   const name=(e&&e.names) || (cs&&cs.disp) || (ms&&ms.disp) || key;
-  const macro=(e?e._analytes:[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, table:'macro', wl:a.wl}));
-  const micro=((cs&&cs.specs)||[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, table:'micro', wl:a.wl}));
+  const macro=(e?e._analytes:[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, form:a.form, name:a.name, table:'macro', wl:a.wl}));
+  const micro=((cs&&cs.specs)||[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, form:a.form, name:a.name, table:'micro', wl:a.wl}));
   const metals=((ms&&ms.metals)||[]).map(a=>({el:a.el, claim:a.limit, factor:1, table:'heavy', wl:a.wl}));
   EDIT_CONTEXT={key, name, specs:macro.concat(micro,metals)};
   renderAddForm();
