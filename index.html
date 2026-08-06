@@ -491,6 +491,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
   #toolbar{margin-top:14px;display:none;gap:10px;flex-wrap:wrap}
+  #panelHandle{position:absolute;left:50%;transform:translateX(-50%);bottom:-15px;z-index:55;
+    display:none;align-items:center;gap:7px;cursor:ns-resize;user-select:none;
+    background:var(--green,#0f4c81);color:#fff;padding:4px 16px 5px;border-radius:0 0 9px 9px;
+    box-shadow:0 3px 7px rgba(0,0,0,.22);line-height:1}
+  #panelHandle .grip{width:30px;height:4px;border-radius:3px;background:rgba(255,255,255,.8)}
+  #panelHandle:hover{filter:brightness(1.08)}
+  body.panel-dragging{cursor:ns-resize!important}
   /* ---------- Reports ---------- */
   #reports{padding:24px;display:flex;flex-direction:column;align-items:center;gap:28px}
   .report{background:#fff;width:8.5in;min-height:11in;padding:0.7in 0.75in;
@@ -562,10 +569,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <button class="act sec" onclick="logout()">⎋ Log out</button>
   </div>
   <div class="row">
-    <label class="drop" id="drop">
-      📂 Drop raw data .xlsx here, or click to browse
-      <input type="file" id="file" accept=".xlsx,.xls" style="display:none">
-    </label>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <label class="drop" id="drop">
+        📂 Drop raw data .xlsx here, or click to browse
+        <input type="file" id="file" accept=".xlsx,.xls" style="display:none">
+      </label>
+      <button class="act sec" style="font-size:12px" onclick="openPaste()">📋 Or paste data from Excel…</button>
+    </div>
     <div class="fld">
       <label>Wavelength mode</label>
       <div class="modes">
@@ -597,9 +607,34 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     </div>
     <span style="font-size:13px;color:#555;align-self:center">🔒 Reports open locked (view-only). Click the lock icon on a report to unlock editing; edits are included in exports.</span>
   </div>
+  <div id="panelHandle" title="Drag up/down to move this panel out of the way (double-click to reset)">
+    <span class="grip"></span>
+  </div>
 </div>
 
 <div id="reports"></div>
+
+<div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow:auto;padding:30px">
+  <div style="background:#fff;max-width:820px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;margin-bottom:6px">
+      <h2 style="margin:0;color:#0f4c81">Paste raw data</h2>
+      <button class="act sec" style="margin-left:auto" onclick="closePaste()">✕ Close</button>
+    </div>
+    <div style="font-size:13px;color:#555;margin-bottom:10px">
+      In your ICP Expert / Excel analysis tab, select the whole grid (including the
+      <b>Solution Label</b> header row), copy it (<b>Ctrl+C</b>), then click in the box below and paste (<b>Ctrl+V</b>).
+      The columns are separated by tabs automatically — no need to save an Excel file first.
+    </div>
+    <textarea id="pasteBox" style="width:100%;height:260px;font-family:Consolas,monospace;font-size:12px;
+      border:1px solid #aaa;border-radius:6px;padding:10px;white-space:pre;overflow:auto"
+      placeholder="Paste the copied cells here…"></textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+      <button class="act" onclick="loadPasted()">Load pasted data</button>
+      <button class="act sec" onclick="document.getElementById('pasteBox').value=''">Clear</button>
+      <span id="pasteMsg" style="font-size:12px;color:#c0392b"></span>
+    </div>
+  </div>
+</div>
 
 <div id="catalogModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;
      overflow:auto;padding:30px">
@@ -740,6 +775,23 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act" onclick="addUser()">＋ Add</button>
     </div>
     <div id="usersMsg" style="font-size:13px;color:#0f4c81;margin-top:8px"></div>
+    <hr style="border:none;border-top:1px solid #ddd;margin:16px 0">
+    <h3 style="margin:0 0 4px;color:#0f4c81">Backup &amp; Restore (all app data)</h3>
+    <div style="font-size:12px;color:#666;margin-bottom:8px">Saves everything — sample types, users, master template, activity log and settings — to a file you keep. Restore it any time (e.g. after clearing browser data, or on a new computer).</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="act" onclick="exportConfig()">Back up now…</button>
+      <label class="act sec" style="cursor:pointer">Restore from backup…
+        <input type="file" accept=".json,application/json" style="display:none" onchange="importConfig(event)"></label>
+      <span id="backupMsg" style="font-size:12px;color:#0f4c81"></span>
+    </div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #ddd">
+      <div style="font-weight:bold;color:#0f4c81;font-size:13px">Automatic backup</div>
+      <div style="font-size:12px;color:#666;margin:2px 0 8px">Choose a backup file once — the app then re-saves it automatically after every change (sample types, users, template). Requires Chrome or Edge.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="autoBackupBtn" class="act" onclick="toggleAutoBackup()">Enable auto-backup…</button>
+        <span id="autoBackupStatus" style="font-size:12px;color:#666"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -759,7 +811,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v3.2';   // bump on each release
+const APP_VERSION='v4.0';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -1006,6 +1058,11 @@ async function submitBug(){
   if(!comments){ msg.textContent='⚠️ Please describe the issue first.'; return; }
   addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
   const {arr, text}=buildBugReport(comments);
+  if(location.protocol==='file:'){
+    msg.textContent='⚠️ Background send is blocked when running from a local file — saving a copy. (Use the installed/website version to send automatically.)';
+    addLog('BUG','Send skipped — running from file:// ; saved to file instead');
+    saveBugFile(text); setTimeout(closeBug,3000); return;
+  }
   // Preferred: send silently to the developers (no email app opens, no key)
   msg.textContent='Sending…';
   try{
@@ -1013,14 +1070,14 @@ async function submitBug(){
       method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
       body:JSON.stringify({_subject:'ICP Reporter bug report — '+APP_VERSION,
         name:'ICP Reporter '+APP_VERSION, message:text, _template:'box'})});
-    const j=await res.json();
+    const j=await res.json().catch(()=>null);
     if(j && (j.success===true || j.success==='true')){
       msg.textContent='✅ Report sent to the developers. Thank you!';
       addLog('BUG','Report delivered to developers'); setTimeout(closeBug,2000); return;
     }
-  }catch(e){}
+    addLog('BUG','Relay response: '+JSON.stringify(j));   // record what came back
+  }catch(e){ addLog('BUG','Send error: '+(e&&e.message||e)); }
   // Fallback (offline, or relay not yet activated): save a file to forward manually
-  msg.textContent='⚠️ Could not send automatically — saving a copy instead.';
   saveBugFile(text);
   msg.textContent='✅ Report saved as a file. Please forward it to your provider.';
   setTimeout(closeBug,2800);
@@ -1035,11 +1092,20 @@ const USERS_KEY='icpUsers', AUTH_KEY='icpAuth', AUTH_TTL=12*3600*1000;
 let CURRENT_USER=null, CURRENT_ROLE=null;   // role: 'admin' | 'user'
 const val=id=>document.getElementById(id).value;
 function loadUsers(){ try{return JSON.parse(localStorage.getItem(USERS_KEY))||{};}catch(e){return {};} }
-function saveUsers(o){ localStorage.setItem(USERS_KEY,JSON.stringify(o)); }
+function saveUsers(o){ localStorage.setItem(USERS_KEY,JSON.stringify(o)); scheduleAutoBackup(); }
 function hashPw(pw,salt){ let h=5381; const s=salt+'|'+pw; for(let i=0;i<s.length;i++){h=((h<<5)+h)+s.charCodeAt(i);h|=0;} return (h>>>0).toString(16); }
+// The built-in admin/password failsafe can be retired once a real admin exists.
+const FAILSAFE_KEY='icpFailsafeDisabled';
+function failsafeOn(){ return !localStorage.getItem(FAILSAFE_KEY); }
+// how many admin accounts exist right now (failsafe counts as one while enabled)
+function adminCount(){
+  let n=failsafeOn()?1:0; const u=loadUsers();
+  Object.keys(u).forEach(k=>{ if((u[k].role||'user')==='admin') n++; });
+  return n;
+}
 function verifyCreds(u,pw){
   if(!u) return false;
-  if(u==='admin' && pw==='password') return true;          // failsafe
+  if(u==='admin' && pw==='password' && failsafeOn()) return true;   // failsafe (if not retired)
   const rec=loadUsers()[u];
   return !!(rec && hashPw(pw,rec.salt)===rec.hash);
 }
@@ -1115,15 +1181,22 @@ function requireAdmin(label,cb){
 }
 // user management
 function openUsers(){ requireAdmin('manage users', _openUsers); }
-function _openUsers(){ renderUsers(); document.getElementById('usersMsg').textContent=''; document.getElementById('usersModal').style.display='block'; }
+function _openUsers(){ renderUsers(); updateAutoBackupUI(); document.getElementById('usersMsg').textContent=''; document.getElementById('usersModal').style.display='block'; }
 function closeUsers(){ document.getElementById('usersModal').style.display='none'; }
 function renderUsers(){
   const users=loadUsers();
   const item='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #eee';
-  let rows=`<div style="${item}"><b>admin</b> <span style="color:#888">— Admin (built-in failsafe, cannot be removed)</span></div>`;
+  const rmBtn=(fn)=>`<button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='${fn}'>Remove</button>`;
+  let rows='';
+  if(failsafeOn()){
+    // the built-in admin can be retired only once another admin exists (never the last admin)
+    const canRetire=adminCount()>1;
+    rows+=`<div style="${item}"><b>admin</b> <span style="color:#888">— Admin (built-in failsafe)${canRetire?'':' — cannot be removed until you add another admin'}</span>`
+        + (canRetire?rmBtn('removeBuiltinAdmin()'):'') + `</div>`;
+  }
   rows+=Object.keys(users).map(u=>`<div style="${item}"><b>${u}</b>
       <span style="color:#888">— ${(users[u].role||'user')==='admin'?'Admin':'User'}</span>
-      <button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='removeUser(${JSON.stringify(u)})'>Remove</button></div>`).join('');
+      ${rmBtn('removeUser('+JSON.stringify(u)+')')}</div>`).join('');
   document.getElementById('usersList').innerHTML=rows;
 }
 function addUser(){
@@ -1138,9 +1211,123 @@ function addUser(){
   msg.textContent='✅ User "'+u+'" ('+role+') added.'; renderUsers();
 }
 function removeUser(u){
+  const users=loadUsers(); const rec=users[u]; if(!rec) return;
+  // never allow the app to be left with zero admins
+  if((rec.role||'user')==='admin' && adminCount()<=1){
+    alert('⚠️ "'+u+'" is the only remaining admin. Add another admin before removing this one — the app must always have at least one admin.');
+    return;
+  }
   if(!confirm('Remove user "'+u+'"?')) return;
-  const users=loadUsers(); delete users[u]; saveUsers(users);
+  delete users[u]; saveUsers(users);
   addLog('USER','Removed user "'+u+'"'); renderUsers();
+}
+// retire the built-in admin/password failsafe (only when another admin exists)
+function removeBuiltinAdmin(){
+  if(adminCount()<=1){
+    alert('⚠️ You must create another admin account before removing the built-in admin.');
+    return;
+  }
+  requireAdmin('remove the built-in admin account', ()=>{
+    if(!confirm('Remove the built-in "admin" account?\n\nThe admin/password failsafe will no longer work. Make sure you know your other admin login. Continue?')) return;
+    localStorage.setItem(FAILSAFE_KEY,'1'); scheduleAutoBackup();
+    addLog('USER','Built-in admin failsafe retired');
+    if(CURRENT_USER==='admin'){
+      alert('Built-in admin removed. You are signed in as "admin", so you will now be logged out — sign in with your other admin account.');
+      logout(); return;
+    }
+    renderUsers();
+  });
+}
+
+/* ---- Full backup / restore of ALL app data (survives browser-cache clears) ---- */
+const BACKUP_KEYS=['icpCatalogEdits','icpCustomSpecs','icpTypeMetals','icpCustomElements',
+  'icpHiddenBuiltins','icpTemplate','icpUsers','icpActivityLog','icpLogRetentionDays',
+  'icpTermsAccepted','icpLicense','icpSeededV1','icpMacroFixV1','icpTypeMetalsSeedV1','icpLogoDefaultV1',
+  'icpFailsafeDisabled'];
+function backupJSON(){
+  const data={app:'ICP Reporter', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
+  BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data.store[k]=v; });
+  return JSON.stringify(data,null,2);
+}
+async function exportConfig(){
+  const json=backupJSON();
+  const fname='ICP Reporter Backup '+new Date().toISOString().slice(0,10)+'.json';
+  addLog('BACKUP','Full configuration backed up');
+  if(window.showSaveFilePicker){
+    try{ const h=await window.showSaveFilePicker({suggestedName:fname,types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+      const w=await h.createWritable(); await w.write(json); await w.close();
+      document.getElementById('backupMsg').textContent='✅ Backup saved.'; return;
+    }catch(e){ if(e&&e.name==='AbortError') return; }
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+  a.download=fname; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  document.getElementById('backupMsg').textContent='✅ Backup downloaded.';
+}
+function importConfig(ev){
+  const f=ev.target.files[0]; if(!f) return; ev.target.value='';
+  const fr=new FileReader();
+  fr.onload=e=>{
+    let data; try{data=JSON.parse(e.target.result);}catch(_){ alert('That file is not a valid ICP Reporter backup.'); return; }
+    if(!data || data.kind!=='full-backup' || !data.store){ if(!confirm('This doesn’t look like an ICP Reporter backup. Restore anyway?')) return; }
+    requireAdmin('restore all app data', ()=>{
+      if(!confirm('Restore will REPLACE all current sample types, users, template, log and settings on this computer with the backup. Continue?')) return;
+      Object.keys(data.store||{}).forEach(k=>{ localStorage.setItem(k, data.store[k]); });
+      addLog('BACKUP','Full configuration restored from "'+f.name+'"');
+      alert('Backup restored. The app will now reload.');
+      location.reload();
+    });
+  };
+  fr.readAsText(f);
+}
+
+/* ---- Automatic backup: silently re-write a user-chosen file after every change ----
+   Uses the File System Access API (Chrome/Edge). The chosen file handle is kept in
+   IndexedDB so it survives reloads. autoBackup() is fired after every config save. ---- */
+let AUTO_HANDLE=null;
+function idbStore(mode){ return new Promise((res,rej)=>{ const r=indexedDB.open('icpBackupDB',1);
+  r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv'); };
+  r.onsuccess=()=>res(r.result.transaction('kv',mode).objectStore('kv'));
+  r.onerror=()=>rej(r.error); }); }
+function idbSet(k,v){ return idbStore('readwrite').then(s=>new Promise((res,rej)=>{ const q=s.put(v,k); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); })); }
+function idbGet(k){ return idbStore('readonly').then(s=>new Promise((res,rej)=>{ const q=s.get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); })); }
+async function loadAutoHandle(){ try{ AUTO_HANDLE=(await idbGet('autoHandle'))||null; }catch(e){ AUTO_HANDLE=null; } updateAutoBackupUI(); }
+async function verifyPerm(h){ if(!h) return false; const o={mode:'readwrite'};
+  try{ if((await h.queryPermission(o))==='granted') return true;
+       if((await h.requestPermission(o))==='granted') return true; }catch(e){}
+  return false; }
+async function autoBackup(){
+  if(!AUTO_HANDLE) return;
+  try{ if(!(await verifyPerm(AUTO_HANDLE))) return;
+    const w=await AUTO_HANDLE.createWritable(); await w.write(backupJSON()); await w.close();
+    const s=document.getElementById('autoBackupStatus'); if(s) s.textContent='ON — last saved '+new Date().toLocaleTimeString();
+  }catch(e){ addLog('BACKUP','Auto-backup failed: '+(e&&e.message||e)); }
+}
+let _autoBackupTimer=null;
+function scheduleAutoBackup(){ if(!AUTO_HANDLE) return; clearTimeout(_autoBackupTimer); _autoBackupTimer=setTimeout(()=>autoBackup(),600); }
+async function toggleAutoBackup(){
+  if(AUTO_HANDLE){
+    requireAdmin('turn off auto-backup', async ()=>{ AUTO_HANDLE=null; try{await idbSet('autoHandle',null);}catch(e){}
+      addLog('BACKUP','Auto-backup disabled'); updateAutoBackupUI(); });
+    return;
+  }
+  if(!window.showSaveFilePicker){ alert('Automatic backup needs Chrome or Edge. On this browser, use "Back up now…" instead.'); return; }
+  requireAdmin('enable auto-backup', async ()=>{
+    try{
+      const h=await window.showSaveFilePicker({suggestedName:'ICP Reporter Auto-Backup.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+      if(!(await verifyPerm(h))){ alert('Permission to write that file was denied.'); return; }
+      AUTO_HANDLE=h; await idbSet('autoHandle',h);
+      addLog('BACKUP','Auto-backup enabled ('+h.name+')');
+      await autoBackup(); updateAutoBackupUI();
+    }catch(e){ if(e&&e.name==='AbortError') return; alert('Could not enable auto-backup: '+(e&&e.message||e)); }
+  });
+}
+function updateAutoBackupUI(){
+  const btn=document.getElementById('autoBackupBtn'), st=document.getElementById('autoBackupStatus');
+  if(!btn) return;
+  if(AUTO_HANDLE){ btn.textContent='Turn off auto-backup'; btn.className='act sec';
+    if(st){ st.textContent='ON — saving to "'+AUTO_HANDLE.name+'"'; st.style.color='#2e7d32'; } }
+  else{ btn.textContent='Enable auto-backup…'; btn.className='act';
+    if(st){ st.textContent='Off'; st.style.color='#666'; } }
 }
 
 /* =====================================================================
@@ -1196,8 +1383,8 @@ function te(key){ return `<span data-tpl="${key}">${T(key)}</span>`; }
 // representative sample used to render the editable master template
 function demoSample(){
   return {label:'12345 Example', batch:'12345', type:'Example', reportDate:'(from raw data)',
-    macro:[{compound:'Phosphorus(V) Oxide (P₂O₅)',kind:'value',value:10,claim:10,phosphite:false,wl:'213.618'},
-           {compound:'Potassium Oxide (K₂O)',kind:'value',value:8,claim:8,phosphite:false,wl:'766.491'}],
+    macro:[{compound:'Phosphorus (P₂O₅)',kind:'value',value:10,claim:10,phosphite:false,wl:'213.618'},
+           {compound:'Potassium (K₂O)',kind:'value',value:8,claim:8,phosphite:false,wl:'766.491'}],
     additional:[{compound:'Calcium (Ca)',kind:'value',value:4,claim:4,wl:'393.366'}],
     hasPhosphite:false, error:null,
     metals:heavyMetalList().map(h=>({...h,detected:'N',qty:'',wl:'—'}))};
@@ -1263,6 +1450,7 @@ function _saveMaster(){
   captureInlineEdits();
   if(_pendingLogo) TEMPLATE.logo=_pendingLogo;
   localStorage.setItem(TPL_KEY, JSON.stringify(TEMPLATE));
+  scheduleAutoBackup();
   addLog('TEMPLATE','Saved master template'+(_pendingLogo?' (logo changed)':''), TEMPLATE);
   _templateBackup=null; _pendingLogo=null;
   if(typeof SAMPLES!=='undefined' && SAMPLES.length) render();
@@ -1290,14 +1478,16 @@ const ELEMENT_NAMES = {
   Ca:'Calcium', Cd:'Cadmium', Ce:'Cerium', Co:'Cobalt', Cr:'Chromium', Cu:'Copper',
   Fe:'Iron', Hg:'Mercury', K:'Potassium', Li:'Lithium', Mg:'Magnesium', Mn:'Manganese',
   Na:'Sodium', Ni:'Nickel', P:'Phosphorus', Pb:'Lead', Se:'Selenium', Sr:'Strontium',
-  Tl:'Thallium', V:'Vanadium', Zn:'Zinc'
+  Tl:'Thallium', V:'Vanadium', Zn:'Zinc',
+  // no emission line in the current method, but valid analytes the app can hold specs for
+  Mo:'Molybdenum', S:'Sulfur'
 };
 
 // How each element is reported.  factor>1 = converted compound (P->P2O5, K->K2O);
 // factor 1 = elemental, reported as-is ("the elemental ones are left alone").
 const COMPOUND_INFO = {
-  P:  {compound:'Phosphorus(V) Oxide (P₂O₅)', factor:2.2914}, // 141.94 / (2*30.974)
-  K:  {compound:'Potassium Oxide (K₂O)',      factor:1.2046}, // 94.20  / (2*39.098)
+  P:  {compound:'Phosphorus (P₂O₅)', factor:2.2914}, // 141.94 / (2*30.974)
+  K:  {compound:'Potassium (K₂O)',      factor:1.2046}, // 94.20  / (2*39.098)
   Ca: {compound:'Calcium (Ca)',     factor:1},
   Mg: {compound:'Magnesium (Mg)',   factor:1},
   S:  {compound:'Sulfur (S)',       factor:1},   // note: no S line in raw data -> N/A
@@ -1377,9 +1567,9 @@ CATALOG.forEach(e=>{
    HIDDEN: keys to delete;  EDITS: key -> {names, analytes} replacing a built-in. */
 const HIDE_KEY='icpHiddenBuiltins', EDIT_KEY='icpCatalogEdits';
 function loadHidden(){ try{return JSON.parse(localStorage.getItem(HIDE_KEY))||[];}catch(e){return [];} }
-function saveHidden(a){ localStorage.setItem(HIDE_KEY, JSON.stringify(a)); }
+function saveHidden(a){ localStorage.setItem(HIDE_KEY, JSON.stringify(a)); scheduleAutoBackup(); }
 function loadEdits(){ try{return JSON.parse(localStorage.getItem(EDIT_KEY))||{};}catch(e){return {};} }
-function saveEdits(o){ localStorage.setItem(EDIT_KEY, JSON.stringify(o)); }
+function saveEdits(o){ localStorage.setItem(EDIT_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 
 // Effective catalog = built-ins minus deletions, with edits applied.
 let EFF=[];
@@ -1676,30 +1866,34 @@ function analyteRow(row,elemCols,a,mode,wlOverrides,table){
    Shape: { "<normalized type>": {disp:"Original Name", specs:[{el,compound,factor,claim}]} } */
 const CUSTOM_KEY='icpCustomSpecs';
 function loadCustom(){ try{return JSON.parse(localStorage.getItem(CUSTOM_KEY))||{};}catch(e){return {};} }
-function saveCustom(o){ localStorage.setItem(CUSTOM_KEY, JSON.stringify(o)); }
-function customSpecsFor(type){
-  const t=norm(type); if(!t) return [];
-  const store=loadCustom();
+function saveCustom(o){ localStorage.setItem(CUSTOM_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
+// Find the best store entry for a normalized type key: exact alias match first,
+// then nearest alias within the fuzzy tolerance (mirrors matchCatalog for macro).
+function bestStoreMatch(store,t){
+  if(!t) return null;
   for(const k in store){
-    const r=store[k];
-    const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
-    if(aliases.includes(t)) return r.specs||[];
+    const r=store[k]; const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
+    if(aliases.includes(t)) return r;
   }
-  return [];
+  let best=null;
+  for(const k in store){
+    const r=store[k]; const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
+    for(const a of aliases){ const d=editDistance(t,a); if(!best||d<best.d) best={r,d}; }
+  }
+  return (best && best.d<=FUZZY_MAX) ? best.r : null;
+}
+function customSpecsFor(type){
+  const r=bestStoreMatch(loadCustom(), norm(type));
+  return r ? (r.specs||[]) : [];
 }
 // per-sample-type heavy metals (Heavy Metal table). null = type defines none.
 const HMETAL_KEY='icpTypeMetals';
 function loadTypeMetals(){ try{return JSON.parse(localStorage.getItem(HMETAL_KEY))||{};}catch(e){return {};} }
-function saveTypeMetals(o){ localStorage.setItem(HMETAL_KEY, JSON.stringify(o)); }
+function saveTypeMetals(o){ localStorage.setItem(HMETAL_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 function typeMetalsFor(type){
   const t=norm(type); if(!t) return null;
-  const store=loadTypeMetals();
-  for(const k in store){
-    const r=store[k];
-    const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
-    if(aliases.includes(t)) return r.metals||[];
-  }
-  return null;
+  const r=bestStoreMatch(loadTypeMetals(), t);
+  return r ? (r.metals||[]) : null;
 }
 
 function buildSample(s,elemCols,mode){
@@ -1714,8 +1908,11 @@ function buildSample(s,elemCols,mode){
   // match the sample type (typo-tolerant) across its three content categories
   const mc=matchCatalog(type);
   const entry=mc.entry;                               // macro analytes
-  const custom=customSpecsFor(type);                  // micro analytes
-  const typeMetals=typeMetalsFor(type);               // heavy metals (null = none defined)
+  // resolve micro/heavy against the SAME type the macro matched (canonical key),
+  // so a typo/fuzzy label loads all three tables — not just the macro one.
+  const lookup = entry ? entry._aliases[0].disp : type;
+  const custom=customSpecsFor(lookup);                // micro analytes
+  const typeMetals=typeMetalsFor(lookup);             // heavy metals (null = none defined)
   const known = !!entry || custom.length>0 || typeMetals!==null;
 
   // A report conforms to its type: only the tables the type actually defines are shown.
@@ -1796,7 +1993,7 @@ function logoHTML(){
 }
 
 // dropdown <option>s of every known sample type (catalog + custom-only)
-function typeOptionsHTML(){
+function typeOptionsHTML(current){
   // include every known type across macro (EFF), micro (custom) and heavy-metal (typeMetals) stores
   const seen=new Set(), names=[];
   const add=(disp,key)=>{ if(!key||seen.has(key))return; seen.add(key); names.push(disp); };
@@ -1804,8 +2001,10 @@ function typeOptionsHTML(){
   const custom=loadCustom(); Object.keys(custom).forEach(k=>add(custom[k].disp, k));
   const tm=loadTypeMetals(); Object.keys(tm).forEach(k=>add(tm[k].disp, k));
   // value = first name only (so it matches an alias); label shows all alternates
+  const cur=String(current||'').trim().toLowerCase();
   return names.map(n=>{const v=String(n).split('/')[0].trim();
-    return `<option value="${v.replace(/"/g,'&quot;')}">${n}</option>`;}).join('');
+    const hit=!!cur && String(n).split('/').some(x=>x.trim().toLowerCase()===cur);
+    return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;}).join('');
 }
 
 // error banner with interactive Yes/No + type-picker controls
@@ -1852,7 +2051,7 @@ function revealPicker(btn){
 function applySuggestion(label,type){
   TYPE_OVERRIDES[label]=type;
   addLog('TYPE_OVERRIDE',`Sample "${label}" confirmed as type "${type}" (suggestion accepted)`);
-  if(lastFile) readFile(lastFile);
+  reprocessLast();
 }
 // accept a fuzzy auto-match and hide its notice (kept dismissed for the session)
 function dismissFuzzy(label){
@@ -1864,9 +2063,13 @@ function dismissFuzzy(label){
 function chooseType(label,val){
   if(!val) return;
   if(val==='__new__'){ PENDING_TYPE_LABEL=label; openCatalog(); return; }
+  // revert to the type read from the sample label (clears a manual override)
+  if(val==='__auto__'){ delete TYPE_OVERRIDES[label];
+    addLog('TYPE_OVERRIDE',`Sample "${label}" reverted to the type read from its label`);
+    reprocessLast(); return; }
   TYPE_OVERRIDES[label]=val.split('/')[0].trim();   // guard: use first name only
   addLog('TYPE_OVERRIDE',`Sample "${label}" manually set to type "${TYPE_OVERRIDES[label]}"`);
-  if(lastFile) readFile(lastFile);
+  reprocessLast();
 }
 
 // toggle a single report between locked (view-only) and unlocked (editable).
@@ -2031,7 +2234,7 @@ function rawPreviewHTML(){
 }
 function render(){
   const box=document.getElementById('reports');
-  if(!SAMPLES.length){box.innerHTML='';document.getElementById('toolbar').style.display='none';renderWarnings();return;}
+  if(!SAMPLES.length){box.innerHTML='';document.getElementById('toolbar').style.display='none';document.getElementById('panelHandle').style.display='none';renderWarnings();return;}
   box.innerHTML=rawPreviewHTML()+SAMPLES.map((s,i)=>`
     <div class="report-wrap">
       <div class="rep-tools">
@@ -2048,6 +2251,7 @@ function render(){
       ${reportHTML(s,i)}
     </div>`).join('');
   document.getElementById('toolbar').style.display='flex';
+  document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
   renderWarnings();
 }
@@ -2060,7 +2264,23 @@ function layoutPanel(s,i){
   const cb=(k,label)=>`<label style="margin-right:14px"><input type="checkbox" ${st[k]?'checked':''} onclick="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
   const chips=(s.metalSpecs||[]).map(m=>`<span style="display:inline-block;background:#eef;border:1px solid #ccd;border-radius:10px;padding:1px 8px;margin:2px;font-size:11px">${m.name||m.el} <b style="cursor:pointer;color:#922" onclick="reportRemoveMetal(${i},'${m.el}')">✕</b></span>`).join('');
   const opts=eles.map(e=>`<option value="${e}">${e}</option>`).join('');
+  // sample-type picker for THIS report (fixes a wrong type without re-importing)
+  const tOpts=typeOptionsHTML(s.type);
+  const curOpt = !s.type ? '<option value="" selected>\u2014 none detected \u2014</option>'
+               : (tOpts.indexOf(' selected')<0
+                    ? `<option value="${String(s.type).replace(/"/g,'&quot;')}" selected>${s.type} (not in catalog)</option>` : '');
+  const autoOpt = (TYPE_OVERRIDES[s.label]!==undefined)
+    ? '<option value="__auto__">\u21ba Use type from sample label</option>' : '';
   return `<div id="layoutP${i}" class="no-export" contenteditable="false" style="display:none;border:1px solid #d8c98a;background:#fffdf5;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:12px">
+      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Sample type (this report)</div>
+      <div style="margin-bottom:9px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select onchange='chooseType(${JSON.stringify(s.label)},this.value)' style="padding:3px;font-size:12px;max-width:270px">
+          ${curOpt}${tOpts}
+          <option value="__new__">\u2795 Add new sample type\u2026</option>
+          ${autoOpt}
+        </select>
+        <span style="color:#888;font-size:11px">re-reads the loaded file and rebuilds this report's tables</span>
+      </div>
       <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Show / hide tables (this report)</div>
       <div style="margin-bottom:8px">${cb('macro','Macro')}${cb('micro','Micro')}${cb('heavy','Heavy Metals')}${cb('raw','Raw Data Ref')}</div>
       <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Heavy metals on this report</div>
@@ -2112,7 +2332,7 @@ function openWlMenu(cell){
   const optWl=OPTIMUM_WAVELENGTHS[el];
   const cols=(ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl);
   const cur=(s.wlOverrides&&s.wlOverrides[tbl+':'+el]) || 'auto';
-  const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}',${JSON.stringify(String(val))})">${cur==val?'✓ ':''}${label}</button>`;
+  const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}','${String(val).replace(/'/g,"\\'")}')">${cur==val?'✓ ':''}${label}</button>`;
   let html=opt('auto','Sample-type default')
     +opt('optimum','Optimum line'+(optWl?` (${optWl} nm)`:''))
     +opt('average','Average of all lines');
@@ -2156,17 +2376,34 @@ function fileBase(i){
 }
 // Wrap report HTML (with live edits) into a Word-openable .doc blob.
 function docFromHTML(innerHTML){
+  // Word only honors @page when it is a NAMED section bound to a div (WordSection1);
+  // a bare @page rule is ignored and Word falls back to its own defaults.
   const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office"
     xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
     <head><meta charset="utf-8">
-    <style>@page{size:8.5in 11in;margin:0.6in}body{font-family:Arial,sans-serif;font-size:13px}</style>
-    </head><body>${innerHTML}</body></html>`;
+    <style>
+      @page WordSection1{size:8.5in 11.0in;margin:0.6in 0.6in 0.6in 0.6in;mso-page-orientation:portrait}
+      div.WordSection1{page:WordSection1}
+      body{font-family:Arial,sans-serif;font-size:13px;margin:0;padding:0}
+    </style>
+    </head><body><div class="WordSection1">${innerHTML}</div></body></html>`;
   return new Blob(['﻿'+html],{type:'application/msword'});
 }
 
 // report HTML for export with screen-only controls (lock icon, etc.) removed
 function reportExportHTML(r){
   const c=r.cloneNode(true);
+  // Word ignores CSS-only image sizing and can reserve the image's NATURAL size
+  // (a huge block for a hi-res logo), pushing content down the page. Stamp the
+  // on-screen rendered size as explicit width/height attributes, which Word obeys.
+  const live=r.querySelectorAll('img'), imgs=c.querySelectorAll('img');
+  imgs.forEach((img,i)=>{
+    const src=live[i]; if(!src) return;
+    const b=src.getBoundingClientRect();
+    const w=Math.round(b.width), h=Math.round(b.height);
+    if(w&&h){ img.setAttribute('width',w); img.setAttribute('height',h);
+              img.style.width=w+'px'; img.style.height=h+'px'; }
+  });
   c.querySelectorAll('.no-export').forEach(n=>n.remove());
   return c.innerHTML;
 }
@@ -2268,6 +2505,7 @@ function readFile(file){
       RAW_BYTES=e.target.result;                                   // keep original file bytes
       RAW_EXT=(file.name.match(/\.[^.]+$/)||['.xlsx'])[0];          // original extension
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      LAST_WB=wb;                                                  // enable re-processing on override/mode change
       processWorkbook(wb);
       render();
       const bad=SAMPLES.filter(s=>s.error).length;
@@ -2284,7 +2522,43 @@ function readFile(file){
   fr.readAsArrayBuffer(file);
 }
 
-let lastFile=null;
+let lastFile=null, LAST_WB=null;
+// re-run parsing from whatever the last source was (file OR pasted data),
+// e.g. after a sample-type override or a wavelength-mode change.
+function reprocessLast(){
+  if(LAST_WB){ processWorkbook(LAST_WB); render(); }
+  else if(lastFile){ readFile(lastFile); }
+}
+
+/* ---- Paste raw data straight from Excel (tab-separated) ---- */
+function openPaste(){ document.getElementById('pasteMsg').textContent=''; document.getElementById('pasteModal').style.display='block';
+  setTimeout(()=>document.getElementById('pasteBox').focus(),50); }
+function closePaste(){ document.getElementById('pasteModal').style.display='none'; }
+function loadPasted(){
+  const txt=document.getElementById('pasteBox').value;
+  const msg=document.getElementById('pasteMsg');
+  if(!txt.trim()){ msg.textContent='Nothing pasted yet.'; return; }
+  // Excel copies cells as tab-separated rows; fall back to comma if no tabs present.
+  const lines=txt.replace(/\r/g,'').replace(/\n+$/,'').split('\n');
+  const sep = lines.some(l=>l.indexOf('\t')>=0) ? '\t' : ',';
+  const aoa=lines.map(l=>l.split(sep));
+  try{
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+    // rebuild an .xlsx so the "Raw data (Excel)" download still works
+    RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
+    lastFile=null; LAST_WB=wb;
+    processWorkbook(wb); render();
+    const bad=SAMPLES.filter(s=>s.error).length;
+    document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
+      :`✅ ${SAMPLES.length} sample(s) parsed from pasted data: `)+SAMPLES.map(s=>s.label).join(', ');
+    const mode=document.querySelector('input[name="mode"]:checked').value;
+    addLog('FILE_LOAD',`Processed pasted data — ${SAMPLES.length} sample(s), ${bad} with errors (wavelength mode: ${mode})`,
+      {source:'paste', batchDate:fmtDate(RAW_DATE), mode, sampleCount:SAMPLES.length, samples:SAMPLES.map(sampleLogData)});
+    closePaste();
+  }catch(err){ msg.textContent='Could not read that data: '+err.message; addLog('ERROR','Paste parse failed: '+err.message); }
+}
+
 const fileInput=document.getElementById('file');
 const drop=document.getElementById('drop');
 // NOTE: #drop is a <label> wrapping the file input, so clicking it already opens the
@@ -2296,7 +2570,7 @@ drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){lastFile=
 
 // re-process when mode changes
 document.querySelectorAll('input[name="mode"]').forEach(r=>
-  r.addEventListener('change',()=>{addLog('SETTING','Wavelength mode changed to: '+r.value);if(lastFile)readFile(lastFile);}));
+  r.addEventListener('change',()=>{addLog('SETTING','Wavelength mode changed to: '+r.value);reprocessLast();}));
 // re-render on settings change (note: this rebuilds reports, clearing manual edits)
 document.getElementById('repdate').addEventListener('change',render);
 document.getElementById('analyst').addEventListener('change',render);
@@ -2309,10 +2583,67 @@ document.getElementById('repdate').valueAsDate=new Date();
 // version labels
 document.getElementById('verTag').textContent='ICP Reporter '+APP_VERSION;
 document.getElementById('appVer').textContent=APP_VERSION;
-// PWA: enable "Install app" (desktop icon) + offline caching when served from a website
-if('serviceWorker' in navigator && location.protocol.startsWith('http')){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+// PWA: enable "Install app" (desktop icon) + offline caching + push-button updates
+function showUpdateBanner(reg){
+  if(document.getElementById('updateBanner')) return;
+  const b=document.createElement('div'); b.id='updateBanner';
+  b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:400;'
+    +'background:#0f4c81;color:#fff;padding:11px 16px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);'
+    +'display:flex;gap:12px;align-items:center;font-size:13px';
+  b.innerHTML='<span>🔄 A new version of ICP Reporter is available.</span>'
+    +'<button id="updateNowBtn" style="background:#fff;color:#0f4c81;border:0;border-radius:6px;padding:6px 14px;font-weight:bold;cursor:pointer">Update now</button>'
+    +'<button id="updateLaterBtn" style="background:none;border:0;color:#cfe0f0;cursor:pointer;font-size:12px">Later</button>';
+  document.body.appendChild(b);
+  document.getElementById('updateLaterBtn').onclick=()=>b.remove();
+  document.getElementById('updateNowBtn').onclick=()=>{
+    b.innerHTML='<span>Updating…</span>';
+    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    else location.reload();
+  };
 }
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    // an update was found while the app is open
+    reg.addEventListener('updatefound',()=>{
+      const nw=reg.installing;
+      if(nw) nw.addEventListener('statechange',()=>{
+        if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdateBanner(reg);
+      });
+    });
+    // an update was already downloaded and waiting from a previous visit
+    if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
+  }).catch(()=>{});
+  // when the new worker takes control, reload once to run the new code
+  let _reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(_reloaded) return; _reloaded=true; location.reload();
+  });
+}
+// ask the browser to keep our data (reduces automatic eviction of localStorage)
+if(navigator.storage && navigator.storage.persist){ navigator.storage.persist().catch(()=>{}); }
+// restore the auto-backup file handle chosen in a previous session
+loadAutoHandle();
+
+/* ---- Draggable top panel: grab the handle to slide the panel up out of the way ---- */
+(function(){
+  const panel=document.getElementById('panel'), handle=document.getElementById('panelHandle');
+  if(!panel||!handle) return;
+  let offset=0, startY=0, startOffset=0, dragging=false;
+  function maxUp(){ return Math.max(0, panel.offsetHeight-46); } // keep the handle on screen
+  function apply(){ panel.style.transform = offset ? 'translateY('+offset+'px)' : ''; }
+  function move(y){ const dy=y-startY; offset=Math.min(0, Math.max(-maxUp(), startOffset+dy)); apply(); }
+  function down(e){ dragging=true; startY=(e.touches?e.touches[0].clientY:e.clientY); startOffset=offset;
+    document.body.classList.add('panel-dragging'); e.preventDefault(); }
+  function drag(e){ if(!dragging) return; move(e.touches?e.touches[0].clientY:e.clientY); }
+  function up(){ if(!dragging) return; dragging=false; document.body.classList.remove('panel-dragging'); }
+  handle.addEventListener('mousedown',down);
+  handle.addEventListener('touchstart',down,{passive:false});
+  window.addEventListener('mousemove',drag);
+  window.addEventListener('touchmove',drag,{passive:false});
+  window.addEventListener('mouseup',up);
+  window.addEventListener('touchend',up);
+  handle.addEventListener('dblclick',()=>{ offset=0; apply(); });
+})();
 
 // One-time: give pre-existing sample types the default heavy metals so their reports
 // keep the Heavy Metal table (new types start with whatever the user defines).
@@ -2358,7 +2689,8 @@ function closeCatalog(){ document.getElementById('catalogModal').style.display='
 // ---- Sample-type library export / import (move specs between devices) ----
 function exportLibrary(){
   const data={app:'ICP Reporter', kind:'sample-type-library', version:APP_VERSION,
-              exported:new Date().toISOString(), edits:loadEdits(), custom:loadCustom(), typeMetals:loadTypeMetals()};
+              exported:new Date().toISOString(), edits:loadEdits(), custom:loadCustom(), typeMetals:loadTypeMetals(),
+              customElements:loadCustomEls()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download='ICP Reporter Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
@@ -2373,11 +2705,12 @@ function importLibrary(ev){
       if(!confirm('This doesn’t look like an ICP Reporter sample-type library. Import anyway?')) return;
     }
     requireAdmin('import sample types', ()=>{
-      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals();
+      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls();
       Object.assign(edits, data.edits||{});                       // merge (imported wins on conflict)
       Object.keys(data.custom||{}).forEach(k=>{ custom[k]=data.custom[k]; });
       Object.keys(data.typeMetals||{}).forEach(k=>{ tm[k]=data.typeMetals[k]; });
-      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm);
+      Object.keys(data.customElements||{}).forEach(k=>{ ce[k]=data.customElements[k]; });
+      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm); saveCustomEls(ce);
       addLog('CATALOG',`Imported sample-type library from "${f.name}"`);
       refreshCatalog();
       alert('Sample types imported successfully.');
@@ -2388,7 +2721,7 @@ function importLibrary(ev){
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
-function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); if(lastFile) readFile(lastFile); }
+function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast(); }
 
 function renderCatalogList(){
   const adm=isAdmin();
@@ -2443,8 +2776,8 @@ const FORM_BY_FACTOR={2.2914:'P₂O₅', 1.2046:'K₂O', 1.3992:'CaO'};
 // user-added elements (for elements not in the standard list, e.g. future test additions)
 const CUSTOMEL_KEY='icpCustomElements';
 function loadCustomEls(){ try{return JSON.parse(localStorage.getItem(CUSTOMEL_KEY))||{};}catch(e){return {};} }
-function saveCustomEls(o){ localStorage.setItem(CUSTOMEL_KEY, JSON.stringify(o)); }
-function elementChoices(){ return [...new Set([...Object.keys(OPTIMUM_WAVELENGTHS), ...Object.keys(loadCustomEls())])].sort(); }
+function saveCustomEls(o){ localStorage.setItem(CUSTOMEL_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
+function elementChoices(){ return [...new Set([...Object.keys(OPTIMUM_WAVELENGTHS), ...Object.keys(COMPOUND_INFO), ...Object.keys(loadCustomEls())])].sort(); }
 function elName(e){ return ELEMENT_NAMES[e] || loadCustomEls()[e] || e; }
 function elLabel(e){ return COMPOUND_INFO[e]?COMPOUND_INFO[e].compound : (ELEMENT_NAMES[e]||loadCustomEls()[e] ? elName(e)+' ('+e+')' : e); }
 // analyte display: "Name (Form)" + coefficient note when converted; plain name otherwise
@@ -2477,7 +2810,12 @@ function wlOptionsHTML(el, sel){
 function specRowHTML(sp){
   sp=sp||{};
   const choices=elementChoices();
-  const els=choices.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('')
+  // If this spec references an element that isn't in the dropdown (e.g. imported from a
+  // device where it was a custom element), inject it explicitly. Without this the <select>
+  // falls back to its first option (Ag) and Save silently rewrites the spec to Silver.
+  const orphan = sp.el && !choices.includes(sp.el);
+  const els=(orphan?`<option value="${sp.el}" selected>${sp.el} — unrecognised element</option>`:'')
+    +choices.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('')
     +`<option value="__add__">+ Add custom element…</option>`;
   const ci=sp.factor!=null?convIndexForFactor(sp.factor):0;
   const isCustom=CONV_OPTIONS[ci].factor==='custom';
