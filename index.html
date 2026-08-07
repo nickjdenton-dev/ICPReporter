@@ -494,6 +494,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   button.sec{background:#fff;color:var(--green-d);border:1px solid var(--green)}
   button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
+  #status:empty,#warnings:empty{display:none;margin:0;min-height:0}
   /* ---- classic menu bar ---- */
   :root{--tbh:40px}
   @media (display-mode: window-controls-overlay){ :root{--tbh:env(titlebar-area-height,40px)} }
@@ -899,7 +900,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.7';   // bump on each release
+const APP_VERSION='v4.8';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2642,7 +2643,13 @@ function updateWlMenu(){ const v=(document.querySelector('input[name="mode"]:che
 function menuDownload(fn){ if(typeof SAMPLES==='undefined'||!SAMPLES.length){ alert('Load or paste raw data first — there are no reports to export yet.'); return; } fn(); }
 function printAll(){ window.print(); }
 function resetPanelPos(){ const h=document.getElementById('panelHandle'); if(h) h.dispatchEvent(new Event('dblclick')); }
-function aboutApp(){ alert('ICP Reporter '+APP_VERSION+'\n\nQuality-control reporting for ICP-OES raw data.\n© ICP Report LLC'); }
+function aboutApp(){
+  const modes=['window-controls-overlay','standalone','minimal-ui','fullscreen','browser'];
+  const mode=modes.find(m=>matchMedia('(display-mode: '+m+')').matches)||'unknown';
+  const wco=(navigator.windowControlsOverlay&&navigator.windowControlsOverlay.visible)?'yes':'no';
+  alert('ICP Reporter '+APP_VERSION+'\n\nQuality-control reporting for ICP-OES raw data.\n© ICP Report LLC'
+    +'\n\n— diagnostics —\nDisplay mode: '+mode+'\nTitle-bar overlay active: '+wco);
+}
 
 /* ---- Combined exports: every report in ONE file ---- */
 function combinedName(ext){ return 'ICP Reports '+(fmtDate(RAW_DATE)||new Date().toISOString().slice(0,10))+ext; }
