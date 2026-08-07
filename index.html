@@ -469,10 +469,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     --blue:#1a6cb0; --text:#20242a;
   }
   *{box-sizing:border-box}
-  body{font-family:Arial,Helvetica,sans-serif;color:var(--text);margin:0;background:#eef1f4}
+  body{font-family:Arial,Helvetica,sans-serif;color:var(--text);margin:0;background:#eef1f4;padding-top:var(--tbh,40px)}
   /* ---------- Control panel (screen only) ---------- */
-  #panel{background:#fff;border-bottom:3px solid var(--green);padding:0 24px 8px;
-         position:sticky;top:0;z-index:50;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+  #panel{background:#fff;padding:0 24px;
+         position:sticky;top:var(--tbh,40px);z-index:50;box-shadow:0 1px 5px rgba(0,0,0,.12)}
+  #panel.has-data{padding-bottom:10px}
+  #panel:not(.has-data){box-shadow:none}
   #panel h1{margin:0 0 4px;font-size:20px;color:var(--green-d)}
   #panel .sub{color:#666;font-size:13px;margin-bottom:14px}
   .row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
@@ -493,10 +495,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
   /* ---- classic menu bar ---- */
-  #topbar{display:flex;align-items:center;gap:12px;background:#0f4c81;margin:0 -24px 10px;padding:7px 18px}
+  :root{--tbh:40px}
+  @media (display-mode: window-controls-overlay){ :root{--tbh:env(titlebar-area-height,40px)} }
+  #topbar{position:fixed;top:0;left:0;right:0;height:var(--tbh);display:flex;align-items:center;gap:12px;
+    background:#0f4c81;padding:0 14px;z-index:1000;-webkit-app-region:drag;app-region:drag}
+  @media (display-mode: window-controls-overlay){
+    #topbar{left:env(titlebar-area-x,0);top:env(titlebar-area-y,0);width:env(titlebar-area-width,100%);right:auto}
+  }
+  /* window drag on the bar itself; interactive bits stay clickable */
+  #topbar #panelLogo,#topbar #appName,#topbar #menubar,#topbar #userBadge,#topbar .menu>button{-webkit-app-region:no-drag;app-region:no-drag}
   .menu-dd button.menu-disabled{color:#b3b9c0;cursor:not-allowed}
   .menu-dd button.menu-disabled:hover{background:#fff}
-  #topbar #panelLogo{height:30px;background:#fff;border-radius:4px;padding:2px}
+  #topbar #panelLogo{height:24px;background:#fff;border-radius:4px;padding:2px}
   #topbar #appName{color:#fff;font-weight:bold;font-size:16px;letter-spacing:.3px}
   #topbar #userBadge{margin-left:auto;color:#dce9f5;font-size:13px;font-weight:bold}
   #menubar{display:flex;gap:2px;margin-left:8px}
@@ -583,7 +593,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
            border-radius:6px;padding:3px 8px;font-size:17px;cursor:pointer;line-height:1;opacity:.45}
   .lockbtn:hover{opacity:.8}
   @media print{
-    #panel{display:none!important}
+    body{padding-top:0}
+    #panel,#topbar{display:none!important}
     .rep-tools{display:none!important}
     .raw-preview{display:none!important}
     .no-export{display:none!important}
@@ -597,8 +608,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </head>
 <body>
 
-<div id="panel">
-  <div id="topbar">
+<div id="topbar">
     <img id="panelLogo" alt="ExcelAg Corp. USA">
     <span id="appName">ICP Reporter</span>
     <nav id="menubar">
@@ -659,7 +669,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       </div>
     </nav>
     <span id="userBadge"></span>
-  </div>
+</div>
+
+<div id="panel">
   <div style="display:none">
     <input type="radio" name="mode" value="optimum" checked>
     <input type="radio" name="mode" value="average">
@@ -887,7 +899,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.5';   // bump on each release
+const APP_VERSION='v4.7';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2311,6 +2323,7 @@ function rawPreviewHTML(){
 function render(){
   const box=document.getElementById('reports');
   const empty=!SAMPLES.length;
+  document.getElementById('panel').classList.toggle('has-data', !empty);
   document.getElementById('dropCenter').style.display = empty?'flex':'none';
   if(empty){ box.innerHTML=''; document.getElementById('rawPreview').innerHTML='';
     document.getElementById('status').textContent=''; document.getElementById('toolbar').style.display='none';
