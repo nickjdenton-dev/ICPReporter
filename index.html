@@ -490,6 +490,41 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   button.sec{background:#fff;color:var(--green-d);border:1px solid var(--green)}
   button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
+  /* ---- classic menu bar ---- */
+  #topbar{display:flex;align-items:center;gap:12px;background:#0f4c81;margin:-18px -24px 14px;padding:6px 16px}
+  #topbar #panelLogo{height:30px;background:#fff;border-radius:4px;padding:2px}
+  #topbar #appName{color:#fff;font-weight:bold;font-size:16px;letter-spacing:.3px}
+  #topbar #userBadge{margin-left:auto;color:#dce9f5;font-size:13px;font-weight:bold}
+  #menubar{display:flex;gap:2px;margin-left:8px}
+  .menu{position:relative}
+  .menu>button{background:none;border:0;color:#eaf2fb;font-size:14px;padding:6px 12px;cursor:pointer;border-radius:4px;font-family:inherit}
+  .menu>button:hover,.menu.open>button{background:rgba(255,255,255,.2);color:#fff}
+  .menu-dd{display:none;position:absolute;top:100%;left:0;min-width:214px;background:#fff;border:1px solid #c7d0d9;
+    border-top:0;border-radius:0 0 7px 7px;box-shadow:0 8px 22px rgba(0,0,0,.22);z-index:120;padding:4px 0}
+  .menu.open>.menu-dd{display:block}
+  .menu-dd button,.menu-dd .mi{display:flex;width:100%;box-sizing:border-box;align-items:center;gap:8px;background:none;
+    border:0;text-align:left;padding:7px 14px;font-size:13px;color:#233;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .menu-dd button:hover,.menu-dd .mi:hover{background:#eaf1f8}
+  .menu-sep{height:1px;background:#e6ebf0;margin:4px 0}
+  .mi-head{padding:5px 14px 3px;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:#94a1ad}
+  .mi-check{display:inline-block;width:12px;color:#0f4c81;font-weight:bold}
+  .submenu>.menu-dd{top:-4px;left:100%}
+  .submenu:hover>.menu-dd,.submenu.open-sub>.menu-dd{display:block}
+  .mi-arrow{margin-left:auto;padding-left:18px;color:#8a97a3}
+  #analystBar{display:flex;align-items:center;gap:8px;padding:8px 0 4px;font-size:13px;color:#334}
+  #analystBar label{font-weight:bold;color:#0f4c81}
+  #analystBar input{padding:5px 8px;border:1px solid #bbb;border-radius:5px;font-size:13px;min-width:200px}
+  #rawPreview:empty{display:none}
+  /* centered drop target (empty state) */
+  #dropCenter{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 150px);padding:30px}
+  #dropBig{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    width:min(700px,88vw);min-height:360px;border:2px dashed #a7c0dc;border-radius:18px;cursor:pointer;
+    background:#f5f9fd;overflow:hidden;text-align:center;transition:background .12s,border-color .12s}
+  #dropBig:hover{background:#eef4fb;border-color:#0f4c81}
+  #dropBig.dragging{background:#dbe8f5;border-color:#0f4c81}
+  #dropBig .dz-logo{position:absolute;width:340px;max-width:72%;opacity:.09;filter:grayscale(1) brightness(.35);pointer-events:none}
+  #dropBig .dz-text{position:relative;font-size:21px;font-weight:bold;color:#26496b;max-width:82%}
+  #dropBig .dz-sub{position:relative;font-size:13px;color:#6c7d8e;max-width:78%}
   #toolbar{margin-top:14px;display:none;gap:10px;flex-wrap:wrap}
   #panelHandle{position:absolute;left:50%;transform:translateX(-50%);bottom:-15px;z-index:55;
     display:none;align-items:center;gap:7px;cursor:ns-resize;user-select:none;
@@ -559,60 +594,91 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <body>
 
 <div id="panel">
-  <div style="display:flex;align-items:center;gap:14px">
-    <img id="panelLogo" alt="ExcelAg Corp. USA" style="height:46px">
-    <div>
-      <h1 style="margin:0">ICP Reporter</h1>
-    </div>
-    <span id="userBadge" style="margin-left:auto;font-size:13px;color:#0f4c81;font-weight:bold"></span>
-    <button class="act sec" onclick="openCatalog()">Sample Types</button>
-    <button class="act sec admin-only" onclick="openMaster()">Master Template</button>
-    <button class="act sec admin-only" onclick="openUsers()">👤 Users</button>
-    <button class="act sec" onclick="openBug()">Report a bug</button>
-    <button class="act sec" onclick="logout()">⎋ Log out</button>
-  </div>
-  <div class="row">
-    <div style="display:flex;flex-direction:column;gap:5px">
-      <label class="drop" id="drop">
-        📂 Drop raw data .xlsx here, or click to browse
-        <input type="file" id="file" accept=".xlsx,.xls" style="display:none">
-      </label>
-      <button class="act sec" style="font-size:12px" onclick="openPaste()">📋 Or paste data from Excel…</button>
-    </div>
-    <div class="fld">
-      <label>Wavelength mode</label>
-      <div class="modes">
-        <label><input type="radio" name="mode" value="optimum" checked> Optimum (strongest line)</label>
-        <label><input type="radio" name="mode" value="average"> Average all lines</label>
+  <div id="topbar">
+    <img id="panelLogo" alt="ExcelAg Corp. USA">
+    <span id="appName">ICP Reporter</span>
+    <nav id="menubar">
+      <div class="menu">
+        <button onclick="toggleMenu(this)">File</button>
+        <div class="menu-dd">
+          <button onclick="document.getElementById('file').click();closeMenus()">Import raw data…</button>
+          <button onclick="openPaste();closeMenus()">Paste from instrument…</button>
+          <div class="menu-sep"></div>
+          <div class="submenu">
+            <button onclick="event.stopPropagation();this.parentElement.classList.toggle('open-sub')">Download reports<span class="mi-arrow">▸</span></button>
+            <div class="menu-dd">
+              <button onclick="menuDownload(downloadAllWordSeparate);closeMenus()">Each report → Word</button>
+              <button onclick="menuDownload(downloadAllPdfSeparate);closeMenus()">Each report → PDF</button>
+              <button onclick="menuDownload(downloadRawExcel);closeMenus()">Raw data (Excel)</button>
+              <button onclick="menuDownload(printAll);closeMenus()">Print all together</button>
+            </div>
+          </div>
+          <div class="menu-sep"></div>
+          <button onclick="logout();closeMenus()">Log out</button>
+        </div>
       </div>
-    </div>
-    <div class="fld">
-      <label>Report date</label>
-      <input type="date" id="repdate">
-    </div>
-    <div class="fld">
-      <label>Analyst</label>
-      <input type="text" id="analyst" value="Nicholas Denton">
-    </div>
+      <div class="menu">
+        <button onclick="toggleMenu(this)">Edit</button>
+        <div class="menu-dd">
+          <button onclick="openCatalog();closeMenus()">Sample Types &amp; Label Claims…</button>
+          <button class="admin-only" onclick="openMaster();closeMenus()">Master Template…</button>
+        </div>
+      </div>
+      <div class="menu">
+        <button onclick="toggleMenu(this)">View</button>
+        <div class="menu-dd">
+          <div class="mi-head">Wavelength mode</div>
+          <div class="mi" onclick="setMode('optimum')"><span class="mi-check" id="wlChkOpt"></span>Optimum (strongest line)</div>
+          <div class="mi" onclick="setMode('average')"><span class="mi-check" id="wlChkAvg"></span>Average all lines</div>
+          <div class="menu-sep"></div>
+          <button onclick="resetPanelPos();closeMenus()">Reset panel position</button>
+        </div>
+      </div>
+      <div class="menu">
+        <button onclick="toggleMenu(this)">Tools</button>
+        <div class="menu-dd">
+          <button class="admin-only" onclick="openUsers();closeMenus()">Users &amp; Backup…</button>
+          <button onclick="openLog();closeMenus()">Activity Log…</button>
+        </div>
+      </div>
+      <div class="menu">
+        <button onclick="toggleMenu(this)">Help</button>
+        <div class="menu-dd">
+          <button onclick="openBug();closeMenus()">Report a bug…</button>
+          <button onclick="openTerms();closeMenus()">Terms &amp; Conditions…</button>
+          <button onclick="aboutApp();closeMenus()">About ICP Reporter</button>
+        </div>
+      </div>
+    </nav>
+    <span id="userBadge"></span>
   </div>
+  <div id="analystBar">
+    <label>Analyst:</label>
+    <input type="text" id="analyst" value="Nicholas Denton">
+  </div>
+  <div style="display:none">
+    <input type="radio" name="mode" value="optimum" checked>
+    <input type="radio" name="mode" value="average">
+    <input type="date" id="repdate">
+  </div>
+  <div id="rawPreview"></div>
   <div id="status"></div>
   <div id="warnings"></div>
   <div id="toolbar">
-    <div style="position:relative;display:inline-block">
-      <button class="act" onclick="toggleDownloadMenu(event)">Download ▾</button>
-      <div id="downloadMenu" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:4px;
-           background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:230px;overflow:hidden">
-        <button class="dl-item" onclick="downloadAllWordSeparate();closeDownloadMenu()">Each report → separate Word</button>
-        <button class="dl-item" onclick="downloadAllPdfSeparate();closeDownloadMenu()">Each report → separate PDF</button>
-        <button class="dl-item" onclick="downloadRawExcel();closeDownloadMenu()">Raw data (Excel)</button>
-        <button class="dl-item" onclick="window.print();closeDownloadMenu()">Print all together</button>
-      </div>
-    </div>
-    <span style="font-size:13px;color:#555;align-self:center">🔒 Reports open locked (view-only). Click the lock icon on a report to unlock editing; edits are included in exports.</span>
+    <span style="font-size:13px;color:#555;align-self:center">🔒 Reports open locked (view-only). Click the lock icon on a report to unlock editing; edits are included in exports. Export via <b>File → Download reports</b>.</span>
   </div>
   <div id="panelHandle" title="Drag up/down to move this panel out of the way (double-click to reset)">
     <span class="grip"></span>
   </div>
+</div>
+
+<div id="dropCenter">
+  <label class="dz" id="dropBig">
+    <img class="dz-logo" id="dzLogo" alt="">
+    <div class="dz-text">Drop raw ICP data here — or paste (Ctrl+V)</div>
+    <div class="dz-sub">Drop an .xlsx file, or copy the results grid from the instrument, to generate a report.</div>
+    <input type="file" id="file" accept=".xlsx,.xls" style="display:none">
+  </label>
 </div>
 
 <div id="reports"></div>
@@ -620,13 +686,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow:auto;padding:30px">
   <div style="background:#fff;max-width:820px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
     <div style="display:flex;align-items:center;margin-bottom:6px">
-      <h2 style="margin:0;color:#0f4c81">Paste raw data</h2>
+      <h2 style="margin:0;color:#0f4c81">Paste from instrument</h2>
       <button class="act sec" style="margin-left:auto" onclick="closePaste()">✕ Close</button>
     </div>
     <div style="font-size:13px;color:#555;margin-bottom:10px">
-      In your ICP Expert / Excel analysis tab, select the whole grid (including the
+      In the instrument's analysis tab (ICP Expert), select the whole results grid (including the
       <b>Solution Label</b> header row), copy it (<b>Ctrl+C</b>), then click in the box below and paste (<b>Ctrl+V</b>).
-      The columns are separated by tabs automatically — no need to save an Excel file first.
+      The cell grid is read directly — no need to save an Excel file first.
     </div>
     <div id="pasteBox" contenteditable="true" data-empty="1"
       style="width:100%;height:260px;font-size:12px;border:1px solid #aaa;border-radius:6px;
@@ -654,11 +720,6 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<div style="position:fixed;left:14px;bottom:12px;z-index:150;display:flex;flex-direction:column;gap:3px;align-items:flex-start">
-  <button id="logBtn" onclick="openLog()" style="background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:8px 14px;
-      font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)">Activity Log</button>
-  <button onclick="openTerms()" style="background:none;border:0;color:#9aa6ad;font-size:11px;cursor:pointer;padding:0 2px">Terms &amp; Conditions</button>
-</div>
 <div id="verTag" style="position:fixed;right:10px;bottom:8px;font-size:11px;color:#9aa6ad;z-index:140"></div>
 
 <div id="termsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:520;overflow:auto;padding:24px">
@@ -814,7 +875,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.1';   // bump on each release
+const APP_VERSION='v4.4';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2147,8 +2208,6 @@ function reportHTML(s,idx){
         <td style="${S.td}${hm.detected==='Y'?'':';'+S.nd}">${hm.detected}${hm.qty?(' — '+hm.qty):''}</td>
         ${wlCell(hm.el,hm.wl,'metal')}</tr>`).join('');
 
-  const errBanner=buildErrBanner(s);
-
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">🔒</button>` : '';
   const layout = (isAdmin() && idx!=null) ? layoutPanel(s,idx) : '';
@@ -2158,7 +2217,6 @@ function reportHTML(s,idx){
     <div class="rep-head">${logoHTML()}</div>
     <div style="text-align:center;color:${C.primary};font-size:24px;font-weight:bold;margin:14px 0 2px">${te('title')}</div>
     <div style="text-align:center;color:#777;font-size:14px;margin-bottom:18px">${te('subtitle')}</div>
-    ${errBanner}
 
     <table style="${S.table}">
       <tr><th width="50%" style="${S.th}">${te('detailsHdr')}</th><th width="50%" style="${S.th}">${te('infoHdr')}</th></tr>
@@ -2207,14 +2265,10 @@ function renderWarnings(){
   const bad=SAMPLES.filter(s=>s.error);
   if(!bad.length){box.innerHTML='';return;}
   const hard=bad.filter(s=>!s.error.soft).length;
-  const rows=bad.map(s=>`<li><b>${s.error.code}</b> — Tube ${s.tube||'?'}, label "${s.label}": ${s.error.msg}</li>`).join('');
-  const c=hard?{b:'#c0392b',bg:'#fdecea',t:'#922'}:{b:'#b8860b',bg:'#fff8e1',t:'#7a5c00'};
-  box.innerHTML=`<div style="border:1px solid ${c.b};background:${c.bg};color:${c.t};
-      padding:10px 12px;margin-top:10px;border-radius:5px;font-size:13px">
-      ${hard?'⛔':'⚠️'} <b>${bad.length} sample(s) need attention</b>
-      ${hard?`(${hard} unrecognized — defaulted to P₂O₅/K₂O only)`:'(auto-matched past small typos — please verify)'}.
-      Fix the label or add the type to the catalog, then reload.
-      <ul style="margin:6px 0 0 18px">${rows}</ul></div>`;
+  // one interactive banner per problem sample, listed below the raw data on the sliding panel
+  box.innerHTML=`<div style="font-weight:bold;color:${hard?'#a33':'#7a5c00'};font-size:13px;margin:10px 0 4px">
+      ${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention${hard?` — ${hard} unrecognized (defaulted to P₂O₅/K₂O only)`:' (auto-matched past small typos — please verify)'}</div>`
+    + bad.map(s=>buildErrBanner(s)).join('');
 }
 // on-screen preview of the original raw data (excluded from exports & print)
 function rawPreviewHTML(){
@@ -2226,19 +2280,23 @@ function rawPreviewHTML(){
     const st=isHdr?thR:tdR;
     return '<tr>'+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
   }).join('');
-  return `<div class="raw-preview" style="background:#fff;width:92%;max-width:1500px;
-       box-shadow:0 2px 10px rgba(0,0,0,.18);border-radius:6px;padding:14px 16px;margin-bottom:10px">
-     <div style="font-weight:bold;color:#0f4c81;font-size:15px;margin-bottom:8px">Raw Data Preview — ${rawDataTitle()}</div>
-     <div style="overflow:auto;max-height:360px;border:1px solid #ddd">
+  return `<div class="raw-preview" style="margin-top:10px">
+     <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
+     <div style="overflow:auto;max-height:300px;border:1px solid #ddd;border-radius:5px">
        <table style="border-collapse:collapse;font-family:Arial,sans-serif">${rows}</table>
      </div>
-     <div style="color:#888;font-size:11px;margin-top:6px">Original imported data (downloads as ${rawDataTitle()}${RAW_EXT}). Individual reports below are derived from it. This preview is not included in exports or printouts.</div>
+     <div style="color:#888;font-size:11px;margin-top:5px">Imported data (downloads as ${rawDataTitle()}${RAW_EXT}). Reports below are derived from it; this preview isn't included in exports.</div>
    </div>`;
 }
 function render(){
   const box=document.getElementById('reports');
-  if(!SAMPLES.length){box.innerHTML='';document.getElementById('toolbar').style.display='none';document.getElementById('panelHandle').style.display='none';renderWarnings();return;}
-  box.innerHTML=rawPreviewHTML()+SAMPLES.map((s,i)=>`
+  const empty=!SAMPLES.length;
+  document.getElementById('dropCenter').style.display = empty?'flex':'none';
+  if(empty){ box.innerHTML=''; document.getElementById('rawPreview').innerHTML='';
+    document.getElementById('status').textContent=''; document.getElementById('toolbar').style.display='none';
+    document.getElementById('panelHandle').style.display='none'; renderWarnings(); return; }
+  document.getElementById('rawPreview').innerHTML=rawPreviewHTML();
+  box.innerHTML=SAMPLES.map((s,i)=>`
     <div class="report-wrap">
       <div class="rep-tools">
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
@@ -2534,6 +2592,39 @@ function reprocessLast(){
 }
 
 /* ---- Paste raw data straight from Excel (tab-separated) ---- */
+/* ---- Classic menu bar (File / Edit / View / Tools / Help) ---- */
+function closeMenus(){ document.querySelectorAll('#menubar .menu.open').forEach(m=>m.classList.remove('open'));
+  document.querySelectorAll('#menubar .open-sub').forEach(s=>s.classList.remove('open-sub')); }
+function toggleMenu(btn){ const m=btn.parentElement, was=m.classList.contains('open'); closeMenus(); if(!was) m.classList.add('open'); }
+// once a menu is open, hovering a sibling switches to it (classic behavior)
+document.addEventListener('mouseover',e=>{ const b=e.target.closest&&e.target.closest('#menubar .menu>button');
+  if(b && document.querySelector('#menubar .menu.open')){ closeMenus(); b.parentElement.classList.add('open'); }});
+// click anywhere outside the menu bar closes it
+document.addEventListener('click',e=>{ if(!e.target.closest||!e.target.closest('#menubar')) closeMenus(); });
+// wavelength mode from the View menu -> drives the (hidden) radios so all logic still works
+function setMode(v){ const r=document.querySelector('input[name="mode"][value="'+v+'"]'); if(!r) return;
+  if(!r.checked){ r.checked=true; r.dispatchEvent(new Event('change')); } updateWlMenu(); closeMenus(); }
+function updateWlMenu(){ const v=(document.querySelector('input[name="mode"]:checked')||{}).value;
+  const o=document.getElementById('wlChkOpt'), a=document.getElementById('wlChkAvg');
+  if(o) o.textContent=v==='optimum'?'✓':''; if(a) a.textContent=v==='average'?'✓':''; }
+function menuDownload(fn){ if(typeof SAMPLES==='undefined'||!SAMPLES.length){ alert('Load or paste raw data first — there are no reports to export yet.'); return; } fn(); }
+function printAll(){ window.print(); }
+function resetPanelPos(){ const h=document.getElementById('panelHandle'); if(h) h.dispatchEvent(new Event('dblclick')); }
+function aboutApp(){ alert('ICP Reporter '+APP_VERSION+'\n\nQuality-control reporting for ICP-OES raw data.\n© ICP Report LLC'); }
+
+// Paste anywhere on the main screen imports data — same outcome as dropping a file.
+// (Ignored while typing in a field or pasting inside the paste box itself.)
+document.addEventListener('paste',e=>{
+  const t=e.target;
+  if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  const cd=e.clipboardData||window.clipboardData; if(!cd) return;
+  const html=cd.getData('text/html'), text=cd.getData('text/plain');
+  if(!html && !(text&&text.trim())) return;
+  e.preventDefault();
+  const box=pasteBoxEl(); box.innerHTML = html || ''; if(!html) box.textContent=text;
+  box.setAttribute('data-empty','0');
+  loadPasted();
+});
 function pasteBoxEl(){ return document.getElementById('pasteBox'); }
 function clearPaste(){ const b=pasteBoxEl(); b.innerHTML=''; b.setAttribute('data-empty','1'); }
 function openPaste(){ document.getElementById('pasteMsg').textContent=''; document.getElementById('pasteModal').style.display='block';
@@ -2553,7 +2644,7 @@ function pasteToAOA(){
       const row=[];
       tr.querySelectorAll('td,th').forEach(td=>{
         const span=parseInt(td.getAttribute('colspan')||'1',10)||1;
-        row.push((td.innerText||'').replace(/ /g,' ').trim());
+        row.push((td.textContent||'').replace(/ /g,' ').trim());
         for(let k=1;k<span;k++) row.push('');
       });
       aoa.push(row);
@@ -2561,7 +2652,7 @@ function pasteToAOA(){
     return aoa;
   }
   // fallback: plain text (tab- or comma-separated)
-  const txt=(box.innerText||'').replace(/\r/g,'').replace(/\n+$/,'');
+  const txt=(box.innerText||box.textContent||'').replace(/\r/g,'').replace(/\n+$/,'');
   if(!txt.trim()) return [];
   const lines=txt.split('\n');
   const sep = lines.some(l=>l.indexOf('\t')>=0) ? '\t' : ',';
@@ -2589,13 +2680,19 @@ function loadPasted(){
 }
 
 const fileInput=document.getElementById('file');
-const drop=document.getElementById('drop');
-// NOTE: #drop is a <label> wrapping the file input, so clicking it already opens the
-// dialog natively. A JS fileInput.click() here would open it a SECOND time.
+const drop=document.getElementById('dropBig');
+// NOTE: #dropBig is a <label> wrapping the file input, so clicking it opens the dialog natively.
 fileInput.addEventListener('change',e=>{if(e.target.files[0]){lastFile=e.target.files[0];readFile(lastFile);}});
-['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.background='#dbe8f5';}));
-['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.style.background='';}));
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('dragging');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('dragging');}));
 drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){lastFile=f;readFile(f);}});
+// allow dropping a new file anywhere once data is already loaded (the center target is hidden then)
+['dragover'].forEach(ev=>document.addEventListener(ev,e=>{ if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')) e.preventDefault(); }));
+document.addEventListener('drop',e=>{ if(e.target.closest&&e.target.closest('#dropBig')) return;
+  const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(f){ e.preventDefault(); lastFile=f; readFile(f); } });
+// the faded background logo on the center drop target
+(function(){ const l=document.getElementById('dzLogo'); if(l&&typeof ICON_LOGO!=='undefined') l.src=ICON_LOGO; })();
 
 // re-process when mode changes
 document.querySelectorAll('input[name="mode"]').forEach(r=>
@@ -2611,6 +2708,7 @@ document.getElementById('repdate').valueAsDate=new Date();
 (function(){const l=document.getElementById('panelLogo'); l.src=(typeof ICON_LOGO!=='undefined')?ICON_LOGO:'logo.jpg';})();
 // version labels
 document.getElementById('verTag').textContent='ICP Reporter '+APP_VERSION;
+updateWlMenu();   // reflect the current wavelength mode in the View menu
 document.getElementById('appVer').textContent=APP_VERSION;
 // PWA: enable "Install app" (desktop icon) + offline caching + push-button updates
 function showUpdateBanner(reg){
@@ -2641,6 +2739,13 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
     });
     // an update was already downloaded and waiting from a previous visit
     if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
+    // actively look for a new version: on load, on window focus, and hourly —
+    // so the banner appears without waiting for the browser's own ~24h check.
+    const check=()=>reg.update().catch(()=>{});
+    check();
+    window.addEventListener('focus',check);
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) check(); });
+    setInterval(check, 60*60*1000);
   }).catch(()=>{});
   // when the new worker takes control, reload once to run the new code
   let _reloaded=false;
