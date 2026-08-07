@@ -583,6 +583,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .dl-item{display:block;width:100%;text-align:left;border:0;background:#fff;padding:9px 14px;
            font-size:13px;cursor:pointer;color:#333}
   .dl-item:hover{background:#e9f1f8}
+  /* finalized reports are fully read-only: no λ picker, no lock toggle, no layout panel */
+  #reports.finalized .wlcell{pointer-events:none;border-bottom:0;cursor:default}
+  #reports.finalized .lockbtn{pointer-events:none}
+  #reports.finalized [id^="layoutP"],#reports.finalized .layout-gear{display:none!important}
   .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
   .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
   #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
@@ -630,10 +634,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
               <div class="menu-sep"></div>
               <button onclick="menuDownload(downloadRawExcel);closeMenus()">Raw data (Excel)</button>
               <button onclick="menuDownload(printAll);closeMenus()">Print all together</button>
-              <div class="menu-sep"></div>
-              <button class="menu-disabled" disabled title="Coming in a future phase — not yet available">Commit to Tracker</button>
             </div>
           </div>
+          <button class="menu-disabled" disabled title="Coming in a future phase — not yet available">Commit to Tracker</button>
           <div class="menu-sep"></div>
           <button onclick="logout();closeMenus()">Log out</button>
         </div>
@@ -680,8 +683,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
   <div id="rawPreview"></div>
   <div id="finalizeBar" style="display:none;margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
-    <button id="finalizeBtn" class="act" onclick="finalizeAll()" disabled>Finalize &amp; lock all reports</button>
-    <button id="unlockAllBtn" class="act sec" onclick="unlockAllReports()" disabled>Unlock all reports</button>
+    <button id="finalizeBtn" class="act" onclick="toggleFinalize()" disabled>Lock &amp; Finalize Reports</button>
     <span id="finalizeHint" style="font-size:12px;color:#888"></span>
   </div>
   <div id="status"></div>
@@ -900,7 +902,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.8';   // bump on each release
+const APP_VERSION='v4.9';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2171,6 +2173,7 @@ function chooseType(label,val){
 // toggle a single report between locked (view-only) and unlocked (editable).
 // Both directions require a password: unlock to edit, lock to save changes.
 function toggleLock(btn){
+  if(FINALIZED){ alert('🔒 Reports are finalized.\n\nUse "Unlock All Reports" above the reports to edit them.'); return; }
   const rep=btn.closest('.report');
   const willEdit = rep.getAttribute('contenteditable')!=='true';
   requireAdmin(willEdit?'unlock report for editing':'lock report & save changes',
@@ -2349,7 +2352,8 @@ function render(){
   document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
   renderWarnings();
-  updateFinalizeBar();
+  maybeAutoFinalize();     // lock automatically once nothing needs attention
+  applyFinalizeState();
 }
 
 /* ---- per-report layout controls (admin-only, never exported) ---- */
@@ -2422,6 +2426,7 @@ function reportRemoveMetal(i,el){
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
 function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remove(); }
 function openWlMenu(cell){
+  if(FINALIZED) return;            // finalized reports are read-only
   closeWlMenu();
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
@@ -2600,6 +2605,7 @@ function readFile(file){
       RAW_EXT=(file.name.match(/\.[^.]+$/)||['.xlsx'])[0];          // original extension
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       LAST_WB=wb;                                                  // enable re-processing on override/mode change
+      FINALIZED=false; USER_UNLOCKED=false;                         // fresh import starts unlocked
       processWorkbook(wb);
       render();
       const bad=SAMPLES.filter(s=>s.error).length;
@@ -2681,30 +2687,58 @@ async function downloadCombinedPdf(){
   addLog('EXPORT','Downloaded all reports as one PDF');
 }
 
-/* ---- Finalize: lock/unlock every report at once ---- */
+/* ---- Finalize: one toggle that locks/unlocks every report ----
+   FINALIZED makes reports fully read-only: no text edits, no wavelength changes,
+   no per-report layout controls. Auto-engages once every error is resolved
+   (unless the user has deliberately unlocked). ---- */
+let FINALIZED=false, USER_UNLOCKED=false;
 function unresolvedCount(){ return (typeof SAMPLES!=='undefined'?SAMPLES:[]).filter(s=>s.error).length; }
-function setAllLocks(edit){
+function applyFinalizeState(){
+  const reports=document.getElementById('reports');
+  if(reports) reports.classList.toggle('finalized', FINALIZED);
   document.querySelectorAll('#reports .report').forEach(rep=>{
-    rep.setAttribute('contenteditable', edit?'true':'false');
+    if(FINALIZED) rep.setAttribute('contenteditable','false');
     const btn=rep.querySelector('.lockbtn');
-    if(btn){ btn.textContent=edit?'🔓':'🔒'; btn.style.opacity=edit?'0.8':'0.45';
-      btn.title=edit?'Editing unlocked — click to lock':'Locked — click to unlock editing'; }
+    if(btn && FINALIZED){ btn.textContent='🔒'; btn.style.opacity='0.45';
+      btn.title='Finalized — use "Unlock all reports" to edit'; }
   });
   updateFinalizeBar();
 }
-function finalizeAll(){ if(unresolvedCount()>0) return; setAllLocks(false); addLog('REPORT','All reports finalized & locked'); }
-function unlockAllReports(){ requireAdmin('unlock all reports for editing', ()=>{ setAllLocks(true); addLog('REPORT','All reports unlocked for editing'); }); }
+function toggleFinalize(){
+  if(FINALIZED){
+    requireAdmin('unlock all reports for editing', ()=>{
+      FINALIZED=false; USER_UNLOCKED=true; applyFinalizeState();
+      addLog('REPORT','All reports unlocked for editing');
+    });
+    return;
+  }
+  if(unresolvedCount()>0) return;              // guarded by the disabled state too
+  FINALIZED=true; USER_UNLOCKED=false; applyFinalizeState();
+  addLog('REPORT','All reports finalized & locked');
+}
 function updateFinalizeBar(){
   const bar=document.getElementById('finalizeBar'); if(!bar) return;
   const has=(typeof SAMPLES!=='undefined')&&SAMPLES.length;
   bar.style.display = has?'flex':'none';
   if(!has) return;
   const bad=unresolvedCount();
-  const fb=document.getElementById('finalizeBtn'), ub=document.getElementById('unlockAllBtn'), hint=document.getElementById('finalizeHint');
-  fb.disabled = bad>0;
-  fb.title = bad>0 ? ('Resolve the '+bad+' sample(s) that need attention above before finalizing.') : 'Lock every report (view-only)';
-  ub.disabled = false; ub.title='Unlock every report for editing (admin)';
-  hint.textContent = bad>0 ? (bad+' unresolved — finalize disabled until fixed') : 'All clear — ready to finalize';
+  const btn=document.getElementById('finalizeBtn'), hint=document.getElementById('finalizeHint');
+  if(FINALIZED){
+    btn.textContent='Unlock All Reports'; btn.className='act sec'; btn.disabled=false;
+    btn.title='Unlock every report for editing (admin)';
+    hint.textContent='🔒 Reports are finalized and locked.';
+  }else{
+    btn.textContent='Lock & Finalize Reports'; btn.className='act'; btn.disabled=bad>0;
+    btn.title = bad>0 ? ('Resolve the '+bad+' sample(s) that need attention above before finalizing.')
+                      : 'Lock every report (view-only)';
+    hint.textContent = bad>0 ? (bad+' unresolved — resolve them to enable finalizing')
+                             : 'All clear — ready to finalize';
+  }
+}
+// auto-finalize the moment the last error is cleared (not after a manual unlock)
+function maybeAutoFinalize(){
+  if(!SAMPLES.length || FINALIZED || USER_UNLOCKED) return;
+  if(unresolvedCount()===0){ FINALIZED=true; addLog('REPORT','All errors resolved — reports auto-finalized & locked'); }
 }
 
 // Paste anywhere on the main screen imports data — same outcome as dropping a file.
@@ -2763,6 +2797,7 @@ function loadPasted(){
     // rebuild an .xlsx so the "Raw data (Excel)" download still works
     RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
     lastFile=null; LAST_WB=wb;
+    FINALIZED=false; USER_UNLOCKED=false;                           // fresh import starts unlocked
     processWorkbook(wb); render();
     const bad=SAMPLES.filter(s=>s.error).length;
     document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
