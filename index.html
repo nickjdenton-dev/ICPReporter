@@ -496,6 +496,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     background:var(--green,#0f4c81);color:#fff;padding:4px 16px 5px;border-radius:0 0 9px 9px;
     box-shadow:0 3px 7px rgba(0,0,0,.22);line-height:1}
   #panelHandle .grip{width:30px;height:4px;border-radius:3px;background:rgba(255,255,255,.8)}
+  #pasteBox table{border-collapse:collapse}
+  #pasteBox td,#pasteBox th{border:1px solid #cfd6dd;padding:2px 7px;font-size:12px;white-space:nowrap}
+  #pasteBox[data-empty="1"]:before{content:"Click here and paste (Ctrl+V) your copied Excel cells…";color:#999}
   #panelHandle:hover{filter:brightness(1.08)}
   body.panel-dragging{cursor:ns-resize!important}
   /* ---------- Reports ---------- */
@@ -625,12 +628,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <b>Solution Label</b> header row), copy it (<b>Ctrl+C</b>), then click in the box below and paste (<b>Ctrl+V</b>).
       The columns are separated by tabs automatically — no need to save an Excel file first.
     </div>
-    <textarea id="pasteBox" style="width:100%;height:260px;font-family:Consolas,monospace;font-size:12px;
-      border:1px solid #aaa;border-radius:6px;padding:10px;white-space:pre;overflow:auto"
-      placeholder="Paste the copied cells here…"></textarea>
+    <div id="pasteBox" contenteditable="true" data-empty="1"
+      style="width:100%;height:260px;font-size:12px;border:1px solid #aaa;border-radius:6px;
+      padding:10px;overflow:auto;background:#fff"></div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
       <button class="act" onclick="loadPasted()">Load pasted data</button>
-      <button class="act sec" onclick="document.getElementById('pasteBox').value=''">Clear</button>
+      <button class="act sec" onclick="clearPaste()">Clear</button>
       <span id="pasteMsg" style="font-size:12px;color:#c0392b"></span>
     </div>
   </div>
@@ -811,7 +814,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.0';   // bump on each release
+const APP_VERSION='v4.1';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2531,17 +2534,43 @@ function reprocessLast(){
 }
 
 /* ---- Paste raw data straight from Excel (tab-separated) ---- */
+function pasteBoxEl(){ return document.getElementById('pasteBox'); }
+function clearPaste(){ const b=pasteBoxEl(); b.innerHTML=''; b.setAttribute('data-empty','1'); }
 function openPaste(){ document.getElementById('pasteMsg').textContent=''; document.getElementById('pasteModal').style.display='block';
-  setTimeout(()=>document.getElementById('pasteBox').focus(),50); }
+  setTimeout(()=>pasteBoxEl().focus(),50); }
 function closePaste(){ document.getElementById('pasteModal').style.display='none'; }
-function loadPasted(){
-  const txt=document.getElementById('pasteBox').value;
-  const msg=document.getElementById('pasteMsg');
-  if(!txt.trim()){ msg.textContent='Nothing pasted yet.'; return; }
-  // Excel copies cells as tab-separated rows; fall back to comma if no tabs present.
-  const lines=txt.replace(/\r/g,'').replace(/\n+$/,'').split('\n');
+// track empty state so the placeholder shows/hides
+document.addEventListener('input',e=>{ if(e.target && e.target.id==='pasteBox'){
+  e.target.setAttribute('data-empty', e.target.textContent.trim()||e.target.querySelector('table') ? '0':'1'); }});
+// Convert the pasted content into a 2-D array. Excel puts a real <table> on the
+// clipboard, so contenteditable keeps every cell intact — walk it row by row.
+function pasteToAOA(){
+  const box=pasteBoxEl();
+  const table=box.querySelector('table');
+  if(table){
+    const aoa=[];
+    table.querySelectorAll('tr').forEach(tr=>{
+      const row=[];
+      tr.querySelectorAll('td,th').forEach(td=>{
+        const span=parseInt(td.getAttribute('colspan')||'1',10)||1;
+        row.push((td.innerText||'').replace(/ /g,' ').trim());
+        for(let k=1;k<span;k++) row.push('');
+      });
+      aoa.push(row);
+    });
+    return aoa;
+  }
+  // fallback: plain text (tab- or comma-separated)
+  const txt=(box.innerText||'').replace(/\r/g,'').replace(/\n+$/,'');
+  if(!txt.trim()) return [];
+  const lines=txt.split('\n');
   const sep = lines.some(l=>l.indexOf('\t')>=0) ? '\t' : ',';
-  const aoa=lines.map(l=>l.split(sep));
+  return lines.map(l=>l.split(sep));
+}
+function loadPasted(){
+  const msg=document.getElementById('pasteMsg');
+  const aoa=pasteToAOA();
+  if(!aoa.length){ msg.textContent='Nothing pasted yet.'; return; }
   try{
     const ws=XLSX.utils.aoa_to_sheet(aoa);
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
