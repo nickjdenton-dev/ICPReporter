@@ -636,7 +636,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
               <button onclick="menuDownload(printAll);closeMenus()">Print all together</button>
             </div>
           </div>
-          <button class="menu-disabled" disabled title="Coming in a future phase — not yet available">Commit to Tracker</button>
+          <button onclick="openTracker();closeMenus()" title="Append finalized results to the shared QC trend tracker">Commit to Tracker…</button>
           <div class="menu-sep"></div>
           <button onclick="logout();closeMenus()">Log out</button>
         </div>
@@ -666,6 +666,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <div class="menu">
         <button onclick="toggleMenu(this)">Help</button>
         <div class="menu-dd">
+          <button onclick="forceRefresh();closeMenus()">Check for updates / Repair</button>
+          <div class="menu-sep"></div>
           <button onclick="openBug();closeMenus()">Report a bug…</button>
           <button onclick="openTerms();closeMenus()">Terms &amp; Conditions…</button>
           <button onclick="aboutApp();closeMenus()">About ICP Reporter</button>
@@ -725,6 +727,40 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act" onclick="loadPasted()">Load pasted data</button>
       <button class="act sec" onclick="clearPaste()">Clear</button>
       <span id="pasteMsg" style="font-size:12px;color:#c0392b"></span>
+    </div>
+  </div>
+</div>
+
+<div id="trackerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:420;overflow:auto;padding:30px">
+  <div style="background:#fff;max-width:660px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0;color:#0f4c81">Commit to Tracker</h2>
+      <button class="act sec" style="margin-left:auto" onclick="closeTracker()">✕ Close</button>
+    </div>
+    <div style="border:1px solid #b8860b;background:#fff8e1;color:#7a5c00;padding:9px 11px;border-radius:5px;font-size:13px;margin-bottom:12px">
+      ⚠️ <b>Only finalized data should be committed for tracking.</b> Committed rows are appended to the
+      shared tracker workbook and become part of your organization's QC trend record.
+    </div>
+    <div style="font-weight:bold;color:#0f4c81;font-size:13px;margin-bottom:5px">Select which samples to track</div>
+    <div style="border:1px solid #ddd;border-radius:5px;max-height:230px;overflow:auto">
+      <label style="display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid #eee;background:#f6f8fa;font-weight:bold;font-size:13px">
+        <input type="checkbox" id="trkAll" checked onchange="trackerToggleAll(this.checked)"> Select / deselect all
+      </label>
+      <div id="trkList"></div>
+    </div>
+    <div style="margin-top:14px">
+      <div style="font-weight:bold;color:#0f4c81;font-size:13px;margin-bottom:4px">Tracker workbook (shared location)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="act sec" onclick="pickTrackerFile()">Choose tracker file…</button>
+        <button class="act sec" onclick="importTrackerHistory()" title="One-time: copy all rows from your existing tracker workbook into this one">Import history…</button>
+        <span id="trkFile" style="font-size:12px;color:#555"></span>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:4px">Pick the shared .xlsx once — it's remembered, and every machine can commit to the same file.
+      New rows are appended; existing rows are never overwritten, and simultaneous commits are merged automatically.</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
+      <button id="trkCommit" class="act" onclick="commitToTracker()">Commit selected to tracker</button>
+      <span id="trkMsg" style="font-size:12px;color:#0f4c81"></span>
     </div>
   </div>
 </div>
@@ -902,7 +938,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v4.9';   // bump on each release
+const APP_VERSION='v5.0';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2649,6 +2685,19 @@ function updateWlMenu(){ const v=(document.querySelector('input[name="mode"]:che
 function menuDownload(fn){ if(typeof SAMPLES==='undefined'||!SAMPLES.length){ alert('Load or paste raw data first — there are no reports to export yet.'); return; } fn(); }
 function printAll(){ window.print(); }
 function resetPanelPos(){ const h=document.getElementById('panelHandle'); if(h) h.dispatchEvent(new Event('dblclick')); }
+// Self-heal a stale/broken install: drop the cached app files and reload the
+// latest version. Sample types, users and settings (localStorage) are NOT touched.
+async function forceRefresh(){
+  if(!confirm('Reload the latest version of ICP Reporter?\n\nThis refreshes the app files only — your sample types, users, template and logs are kept.')) return;
+  try{
+    if('serviceWorker' in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if(window.caches){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
+  }catch(e){}
+  location.replace(location.pathname+'?u='+Date.now());
+}
 function aboutApp(){
   const modes=['window-controls-overlay','standalone','minimal-ui','fullscreen','browser'];
   const mode=modes.find(m=>matchMedia('(display-mode: '+m+')').matches)||'unknown';
@@ -2735,6 +2784,221 @@ function updateFinalizeBar(){
                              : 'All clear — ready to finalize';
   }
 }
+/* =====================================================================
+   COMMIT TO TRACKER — append finalized results to a shared Excel workbook.
+   Long format (one row per analyte) so the data feeds QC trend/control charts.
+   The header row of the chosen workbook is respected: we map our fields onto
+   whatever columns already exist, so it merges with an established tracker.
+   ===================================================================== */
+// "All Data" matches the existing QC Trend Tracker sheet name so commits land in it.
+const TRACKER_SHEET='All Data';
+// canonical field -> accepted header spellings (lowercased, matched loosely).
+// The one-word spellings (SampleType/LabelClaim/SourceFile/ImportedAt) are the
+// exact headers the QC Trend Tracker's RECORD_HEADER writes.
+const TRK_FIELDS=[
+  ['Date',          ['date','report date','run date','analysis date']],
+  ['SampleType',    ['sampletype','sample type','type','product','material']],
+  ['Batch',         ['batch','batch #','batch no','lot','lot #']],
+  ['Element',       ['element','analyte','parameter','nutrient']],
+  ['Measured',      ['measured','result (%)','result','value','measured (%)','result %']],
+  ['LabelClaim',    ['labelclaim','label claim (%)','label claim','claim','guarantee','spec']],
+  ['Flag',          ['flag']],
+  ['SourceFile',    ['sourcefile','source file','source','report','file']],
+  ['ImportedAt',    ['importedat','imported at','committed','committed at','timestamp']],
+  ['Submitted By',  ['submitted by','submittedby','analyst','user','operator','submitted']],
+  ['Table',         ['table','category','group','section']],
+  ['Limit (%)',     ['limit (%)','limit','max','allowed limit','tolerance']],
+  ['Detected',      ['detected','detect','pass/fail']],
+  ['Wavelength (nm)',['wavelength (nm)','wavelength','lambda','λ','nm','line']],
+  ['Instrument',    ['instrument','source instrument','device']]
+];
+const TRK_HEADERS=TRK_FIELDS.map(f=>f[0]);
+const INSTRUMENT_NAME='Agilent ICP-OES 5800';
+const trkNum=v=>{ const n=parseFloat(v); return isFinite(n)?n:''; };
+// Element strings must match the tracker's convention ("Magnesium (Mg)") so new
+// points land on the same chart series as the existing history.
+function trkElement(a){
+  const base=a.name||ELEMENT_NAMES[a.el]||(loadCustomEls()[a.el])||a.el||'';
+  return (a.el && base && base!==a.el) ? (base+' ('+a.el+')') : String(base||a.el||'');
+}
+// Sample types are Title-Cased so "nutrozen" merges with the tracker's "Nutrozen".
+function trkType(t){ return String(t||'').trim().replace(/\S+/g,w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()); }
+// build the long-format rows a single sample contributes
+function trackerRowsFor(s){
+  const who=userFullName(CURRENT_USER), when=new Date().toISOString().slice(0,19).replace('T',' ');
+  const base={Date:s.reportDate||'', SampleType:trkType(s.type||s.label), Batch:s.batch||'',
+              Instrument:INSTRUMENT_NAME, 'Submitted By':who, ImportedAt:when,
+              SourceFile:'ICP Reporter '+APP_VERSION, Flag:''};
+  const out=[];
+  const push=(tbl,a)=>{
+    out.push(Object.assign({},base,{ Table:tbl, Element:trkElement(a),
+      Measured: a.kind==='value'?trkNum(sig3(a.value)) : (a.kind==='nd'?'Non-Detect':'N/A'),
+      LabelClaim: a.claim!=null?trkNum(a.claim):'',
+      'Wavelength (nm)': a.wl||'' })); };
+  (s.macro||[]).forEach(a=>push('Macro',a));
+  (s.additional||[]).forEach(a=>push('Micro',a));
+  (s.metals||[]).forEach(m=>out.push(Object.assign({},base,{ Table:'Heavy Metal',
+      Element:(m.name||m.el||''),
+      Measured: m.qty?trkNum(m.qty):'', 'Limit (%)': m.limit!=null?trkNum(m.limit):'',
+      Detected:m.detected||'', 'Wavelength (nm)':m.wl||'' })));
+  return out;
+}
+/* ---- tracker file handle (remembered between sessions) ---- */
+let TRACKER_HANDLE=null;
+async function loadTrackerHandle(){ try{ TRACKER_HANDLE=(await idbGet('trackerHandle'))||null; }catch(e){ TRACKER_HANDLE=null; } updateTrackerFileLabel(); }
+function updateTrackerFileLabel(){ const el=document.getElementById('trkFile'); if(!el) return;
+  el.textContent = TRACKER_HANDLE ? ('Using: '+TRACKER_HANDLE.name) : 'No tracker file chosen yet.';
+  el.style.color = TRACKER_HANDLE ? '#2e7d32' : '#a33'; }
+async function pickTrackerFile(){
+  if(!window.showSaveFilePicker){ alert('Choosing a shared tracker file needs Chrome or Edge.'); return; }
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:'QC Trend Tracker.xlsx',
+      types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
+    TRACKER_HANDLE=h; await idbSet('trackerHandle',h);
+    addLog('TRACKER','Tracker workbook set to "'+h.name+'"');
+    updateTrackerFileLabel();
+  }catch(e){ if(e&&e.name==='AbortError') return; alert('Could not set the tracker file: '+(e&&e.message||e)); }
+}
+/* ---- the dialog ---- */
+function openTracker(){
+  if(!SAMPLES.length){ alert('Load raw data first — there is nothing to commit.'); return; }
+  if(!FINALIZED && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
+  renderTrackerList(); updateTrackerFileLabel();
+  document.getElementById('trkMsg').textContent='';
+  document.getElementById('trackerModal').style.display='block';
+}
+function closeTracker(){ document.getElementById('trackerModal').style.display='none'; }
+function renderTrackerList(){
+  document.getElementById('trkList').innerHTML=SAMPLES.map((s,i)=>
+    `<label style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-bottom:1px solid #f0f0f0;font-size:13px">
+       <input type="checkbox" class="trkChk" data-i="${i}" checked>
+       <b>${(s.batch?s.batch+' ':'')+(s.type||s.label)}</b>
+       <span style="color:#888">${s.error?'⚠️ '+s.error.code:''}</span></label>`).join('');
+  document.getElementById('trkAll').checked=true;
+}
+function trackerToggleAll(on){ document.querySelectorAll('.trkChk').forEach(c=>c.checked=on); }
+/* ---- read the shared workbook fresh (also used by the concurrency check) ---- */
+async function readTrackerState(handle){
+  const file=await handle.getFile();
+  const state={wb:null, aoa:[], headers:null, stamp:file.lastModified, size:file.size};
+  if(!file.size) return state;
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  // SAFETY: this writer rebuilds the workbook and cannot preserve embedded charts /
+  // images. Refuse rather than silently destroying chart tabs.
+  let names=''; const cap=Math.min(bytes.length,4000000);
+  for(let i=0;i<cap;i++) names+=String.fromCharCode(bytes[i]);
+  if(names.indexOf('xl/charts/')>=0 || names.indexOf('xl/drawings/')>=0)
+    throw new Error('CHARTS: that workbook contains charts, which this writer cannot preserve. '
+      +'Commit to a data-only workbook instead (use "Import history…" to carry your existing data over).');
+  state.wb=XLSX.read(bytes,{type:'array'});
+  const name=state.wb.SheetNames.includes(TRACKER_SHEET)?TRACKER_SHEET:state.wb.SheetNames[0];
+  if(name){ state.aoa=XLSX.utils.sheet_to_json(state.wb.Sheets[name],{header:1,raw:false,defval:''});
+    if(state.aoa.length && state.aoa[0].some(c=>String(c).trim())) state.headers=state.aoa[0].map(c=>String(c).trim()); }
+  return state;
+}
+function trackerColMap(headers){
+  const colFor={};
+  headers.forEach((h,ci)=>{ const key=String(h).toLowerCase().trim();
+    const f=TRK_FIELDS.find(([canon,alts])=>canon.toLowerCase()===key||alts.indexOf(key)>=0);
+    if(f && colFor[f[0]]===undefined) colFor[f[0]]=ci; });
+  return colFor;
+}
+async function writeTrackerWorkbook(handle, wb, aoa){
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const target=(wb.SheetNames||[]).includes(TRACKER_SHEET)?TRACKER_SHEET:((wb.SheetNames||[])[0]||TRACKER_SHEET);
+  if((wb.SheetNames||[]).includes(target)) wb.Sheets[target]=ws; else XLSX.utils.book_append_sheet(wb,ws,target);
+  const buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  const w=await handle.createWritable(); await w.write(buf); await w.close();
+}
+/* ---- append the selected samples, safe against two people committing at once ----
+   Optimistic concurrency: read -> build -> re-read and confirm the file hasn't
+   changed -> write. If someone else committed in between we start over on top of
+   THEIR data, so nothing is ever overwritten. ---- */
+async function commitToTracker(){
+  const msg=document.getElementById('trkMsg');
+  const picked=[...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
+  if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return; }
+  if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
+  const btn=document.getElementById('trkCommit'); btn.disabled=true;
+  msg.style.color='#0f4c81'; msg.textContent='Committing…';
+  try{
+    const perm={mode:'readwrite'};
+    if((await TRACKER_HANDLE.queryPermission(perm))!=='granted' && (await TRACKER_HANDLE.requestPermission(perm))!=='granted')
+      throw new Error('Write permission to the tracker file was denied.');
+    let added=0, done=false, retries=0;
+    for(let attempt=0; attempt<5 && !done; attempt++){
+      const st=await readTrackerState(TRACKER_HANDLE);
+      let wb=st.wb||XLSX.utils.book_new(), aoa=st.aoa, headers=st.headers, colFor;
+      if(headers){ colFor=trackerColMap(headers); }
+      else{ headers=TRK_HEADERS.slice(); colFor={}; TRK_HEADERS.forEach((h,i)=>colFor[h]=i); aoa=[headers]; }
+      added=0;
+      picked.forEach(s=>trackerRowsFor(s).forEach(r=>{
+        const row=new Array(headers.length).fill('');
+        Object.keys(colFor).forEach(k=>{ if(r[k]!==undefined) row[colFor[k]]=r[k]; });
+        aoa.push(row); added++;
+      }));
+      // did anyone else write while we were building? if so, redo on their version
+      const check=await TRACKER_HANDLE.getFile();
+      if(check.lastModified!==st.stamp || check.size!==st.size){
+        retries++; msg.textContent='Another commit landed first — merging and retrying…';
+        await new Promise(r=>setTimeout(r,250+Math.random()*400));
+        continue;
+      }
+      await writeTrackerWorkbook(TRACKER_HANDLE, wb, aoa);
+      done=true;
+    }
+    if(!done) throw new Error('The tracker file kept changing (someone else is committing). Please try again in a moment.');
+    msg.style.color='#2e7d32';
+    msg.textContent='✅ Committed '+added+' row(s) for '+picked.length+' sample(s) to '+TRACKER_HANDLE.name+(retries?' (merged after '+retries+' concurrent edit(s))':'');
+    addLog('TRACKER','Committed '+picked.length+' sample(s) ('+added+' rows) to "'+TRACKER_HANDLE.name+'" by '+userFullName(CURRENT_USER),
+      {samples:picked.map(s=>s.label), rows:added, file:TRACKER_HANDLE.name, mergeRetries:retries});
+    setTimeout(closeTracker,2400);
+  }catch(e){
+    const m=(e&&e.message||String(e)).replace(/^CHARTS:\s*/,'');
+    msg.style.color='#a33'; msg.textContent='Commit failed: '+m;
+    addLog('ERROR','Tracker commit failed: '+m);
+  }
+  btn.disabled=false;
+}
+/* ---- one-time migration: copy an existing tracker's history into the new file ---- */
+async function importTrackerHistory(){
+  const msg=document.getElementById('trkMsg');
+  if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the destination tracker file first.'; return; }
+  if(!window.showOpenFilePicker){ alert('This needs Chrome or Edge.'); return; }
+  let src;
+  try{ [src]=await window.showOpenFilePicker({types:[{description:'Excel workbook',
+        accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx','.xlsm']}}]});
+  }catch(e){ return; }
+  msg.style.color='#0f4c81'; msg.textContent='Reading history…';
+  try{
+    // read-only: the old chart workbook is never modified
+    const f=await src.getFile();
+    const wbOld=XLSX.read(new Uint8Array(await f.arrayBuffer()),{type:'array'});
+    const sheet=wbOld.SheetNames.includes(TRACKER_SHEET)?TRACKER_SHEET:wbOld.SheetNames[0];
+    if(!sheet) throw new Error('No sheets found in that workbook.');
+    const old=XLSX.utils.sheet_to_json(wbOld.Sheets[sheet],{header:1,raw:false,defval:''});
+    if(old.length<2) throw new Error('No data rows found on "'+sheet+'".');
+    const oldHdr=old[0].map(c=>String(c).trim());
+    const st=await readTrackerState(TRACKER_HANDLE);
+    let wb=st.wb||XLSX.utils.book_new(), aoa=st.aoa, headers=st.headers;
+    if(!headers){ headers=oldHdr.slice(); aoa=[headers]; }         // adopt the old layout wholesale
+    const oldMap=trackerColMap(oldHdr), newMap=trackerColMap(headers);
+    let moved=0;
+    for(let i=1;i<old.length;i++){
+      const r=old[i]; if(!r || r.every(c=>String(c||'').trim()==='')) continue;
+      const row=new Array(headers.length).fill('');
+      Object.keys(oldMap).forEach(k=>{ if(newMap[k]!==undefined) row[newMap[k]]=r[oldMap[k]]!==undefined?r[oldMap[k]]:''; });
+      aoa.push(row); moved++;
+    }
+    await writeTrackerWorkbook(TRACKER_HANDLE, wb, aoa);
+    msg.style.color='#2e7d32'; msg.textContent='✅ Imported '+moved+' historical row(s) from "'+f.name+'".';
+    addLog('TRACKER','Imported '+moved+' historical rows from "'+f.name+'" into "'+TRACKER_HANDLE.name+'"');
+  }catch(e){
+    const m=(e&&e.message||String(e)).replace(/^CHARTS:\s*/,'');
+    msg.style.color='#a33'; msg.textContent='Import failed: '+m;
+  }
+}
+
 // auto-finalize the moment the last error is cleared (not after a manual unlock)
 function maybeAutoFinalize(){
   if(!SAMPLES.length || FINALIZED || USER_UNLOCKED) return;
@@ -2834,7 +3098,11 @@ document.getElementById('repdate').addEventListener('change',render);
 document.getElementById('repdate').valueAsDate=new Date();
 
 // panel logo (uses the app icon)
-(function(){const l=document.getElementById('panelLogo'); l.src=(typeof ICON_LOGO!=='undefined')?ICON_LOGO:'logo.jpg';})();
+// app-bar logo; if the image is ever missing, hide it rather than showing broken alt text
+(function(){const l=document.getElementById('panelLogo');
+  l.onerror=function(){ l.style.display='none'; };
+  if(typeof ICON_LOGO!=='undefined') l.src=ICON_LOGO; else l.style.display='none';
+})();
 // version labels
 document.getElementById('verTag').textContent='ICP Reporter '+APP_VERSION;
 updateWlMenu();   // reflect the current wavelength mode in the View menu
@@ -2884,8 +3152,9 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
 }
 // ask the browser to keep our data (reduces automatic eviction of localStorage)
 if(navigator.storage && navigator.storage.persist){ navigator.storage.persist().catch(()=>{}); }
-// restore the auto-backup file handle chosen in a previous session
+// restore the auto-backup + shared-tracker file handles chosen in a previous session
 loadAutoHandle();
+loadTrackerHandle();
 
 /* ---- Draggable top panel: grab the handle to slide the panel up out of the way ---- */
 (function(){
