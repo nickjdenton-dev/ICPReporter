@@ -944,7 +944,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.3';   // bump on each release
+const APP_VERSION='v5.4';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -1705,7 +1705,14 @@ CATALOG.forEach(e=>{
 
 /* ---- User overrides for built-in catalog entries (persist in localStorage) ----
    HIDDEN: keys to delete;  EDITS: key -> {names, analytes} replacing a built-in. */
+/* All localStorage keys are declared together, ABOVE the one-time migrations that
+   run further down. They used to be defined next to their load/save helpers, which
+   sat below those migrations -- so a migration calling saveCustom() hit a temporal
+   dead zone and killed the whole script (only on installs that HAD data to migrate). */
 const HIDE_KEY='icpHiddenBuiltins', EDIT_KEY='icpCatalogEdits';
+const CUSTOM_KEY='icpCustomSpecs';        // user-added micro specs
+const HMETAL_KEY='icpTypeMetals';         // per-type heavy metals
+const CUSTOMEL_KEY='icpCustomElements';   // user-added elements
 function loadHidden(){ try{return JSON.parse(localStorage.getItem(HIDE_KEY))||[];}catch(e){return [];} }
 function saveHidden(a){ localStorage.setItem(HIDE_KEY, JSON.stringify(a)); scheduleAutoBackup(); }
 function loadEdits(){ try{return JSON.parse(localStorage.getItem(EDIT_KEY))||{};}catch(e){return {};} }
@@ -2004,7 +2011,7 @@ function analyteRow(row,elemCols,a,mode,wlOverrides,table){
 
 /* ---- User-added custom specs (persist in localStorage) ----
    Shape: { "<normalized type>": {disp:"Original Name", specs:[{el,compound,factor,claim}]} } */
-const CUSTOM_KEY='icpCustomSpecs';
+/* CUSTOM_KEY is declared with the other storage keys near the top. */
 function loadCustom(){ try{return JSON.parse(localStorage.getItem(CUSTOM_KEY))||{};}catch(e){return {};} }
 function saveCustom(o){ localStorage.setItem(CUSTOM_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 // Find the best store entry for a normalized type key: exact alias match first,
@@ -2027,7 +2034,7 @@ function customSpecsFor(type){
   return r ? (r.specs||[]) : [];
 }
 // per-sample-type heavy metals (Heavy Metal table). null = type defines none.
-const HMETAL_KEY='icpTypeMetals';
+/* HMETAL_KEY is declared with the other storage keys near the top. */
 function loadTypeMetals(){ try{return JSON.parse(localStorage.getItem(HMETAL_KEY))||{};}catch(e){return {};} }
 function saveTypeMetals(o){ localStorage.setItem(HMETAL_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 function typeMetalsFor(type){
@@ -3367,7 +3374,7 @@ const CONV_OPTIONS=[
 ];
 const FORM_BY_FACTOR={2.2914:'P₂O₅', 1.2046:'K₂O', 1.3992:'CaO'};
 // user-added elements (for elements not in the standard list, e.g. future test additions)
-const CUSTOMEL_KEY='icpCustomElements';
+/* CUSTOMEL_KEY is declared with the other storage keys near the top. */
 function loadCustomEls(){ try{return JSON.parse(localStorage.getItem(CUSTOMEL_KEY))||{};}catch(e){return {};} }
 function saveCustomEls(o){ localStorage.setItem(CUSTOMEL_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 function elementChoices(){ return [...new Set([...Object.keys(OPTIMUM_WAVELENGTHS), ...Object.keys(COMPOUND_INFO), ...Object.keys(loadCustomEls())])].sort(); }
