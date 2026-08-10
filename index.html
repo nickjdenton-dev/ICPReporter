@@ -583,8 +583,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .dl-item{display:block;width:100%;text-align:left;border:0;background:#fff;padding:9px 14px;
            font-size:13px;cursor:pointer;color:#333}
   .dl-item:hover{background:#e9f1f8}
-  /* finalized reports are fully read-only: no λ picker, no lock toggle, no layout panel */
-  #reports.finalized .wlcell{pointer-events:none;border-bottom:0;cursor:default}
+  /* finalized reports lock text + layout, but the λ picker stays available to everyone */
   #reports.finalized .lockbtn{pointer-events:none}
   #reports.finalized [id^="layoutP"],#reports.finalized .layout-gear{display:none!important}
   .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
@@ -684,6 +683,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <input type="date" id="repdate">
   </div>
   <div id="rawPreview"></div>
+  <div id="importNotice" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid #48a05f;
+       background:#e7f6ea;color:#1e7a34;border-radius:6px;font-size:13px;align-items:center;gap:10px;flex-wrap:wrap">
+    <span id="importNoticeText" style="font-weight:bold"></span>
+    <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="act" onclick="noticeCommit()">Yes — commit to tracker</button>
+      <button class="act sec" onclick="noticeReview()">No — review data</button>
+    </span>
+  </div>
   <div id="finalizeBar" style="display:none;margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
     <button id="finalizeBtn" class="act" onclick="toggleFinalize()" disabled>Lock &amp; Finalize Reports</button>
     <span id="finalizeHint" style="font-size:12px;color:#888"></span>
@@ -691,7 +698,6 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div id="status"></div>
   <div id="warnings"></div>
   <div id="toolbar">
-    <span style="font-size:13px;color:#555;align-self:center">🔒 Reports open locked (view-only). Click the lock icon on a report to unlock editing; edits are included in exports. Export via <b>File → Export reports</b>.</span>
   </div>
   <div id="panelHandle" title="Drag up/down to move this panel out of the way (double-click to reset)">
     <span class="grip"></span>
@@ -938,7 +944,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.0';   // bump on each release
+const APP_VERSION='v5.3';   // bump on each release
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2388,8 +2394,9 @@ function render(){
   document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
   renderWarnings();
-  maybeAutoFinalize();     // lock automatically once nothing needs attention
+  maybeAutoFinalize();     // lock once nothing needs attention (λ stays editable)
   applyFinalizeState();
+  showImportNotice();      // and offer to commit
 }
 
 /* ---- per-report layout controls (admin-only, never exported) ---- */
@@ -2462,8 +2469,7 @@ function reportRemoveMetal(i,el){
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
 function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remove(); }
 function openWlMenu(cell){
-  if(FINALIZED) return;            // finalized reports are read-only
-  closeWlMenu();
+  closeWlMenu();                   // λ changes stay allowed even when finalized
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
   const optWl=OPTIMUM_WAVELENGTHS[el];
@@ -2641,7 +2647,7 @@ function readFile(file){
       RAW_EXT=(file.name.match(/\.[^.]+$/)||['.xlsx'])[0];          // original extension
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       LAST_WB=wb;                                                  // enable re-processing on override/mode change
-      FINALIZED=false; USER_UNLOCKED=false;                         // fresh import starts unlocked
+      FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false; // fresh import starts unlocked
       processWorkbook(wb);
       render();
       const bad=SAMPLES.filter(s=>s.error).length;
@@ -2772,16 +2778,16 @@ function updateFinalizeBar(){
   if(!has) return;
   const bad=unresolvedCount();
   const btn=document.getElementById('finalizeBtn'), hint=document.getElementById('finalizeHint');
+  hint.style.fontSize='17px';
   if(FINALIZED){
     btn.textContent='Unlock All Reports'; btn.className='act sec'; btn.disabled=false;
     btn.title='Unlock every report for editing (admin)';
-    hint.textContent='🔒 Reports are finalized and locked.';
+    hint.textContent='🔒'; hint.title='Reports are finalized and locked';
   }else{
     btn.textContent='Lock & Finalize Reports'; btn.className='act'; btn.disabled=bad>0;
     btn.title = bad>0 ? ('Resolve the '+bad+' sample(s) that need attention above before finalizing.')
                       : 'Lock every report (view-only)';
-    hint.textContent = bad>0 ? (bad+' unresolved — resolve them to enable finalizing')
-                             : 'All clear — ready to finalize';
+    hint.textContent='🔓'; hint.title = bad>0 ? (bad+' sample(s) still need attention') : 'Unlocked';
   }
 }
 /* =====================================================================
@@ -2868,15 +2874,26 @@ function openTracker(){
   document.getElementById('trackerModal').style.display='block';
 }
 function closeTracker(){ document.getElementById('trackerModal').style.display='none'; }
+// A sample can only be tracked if its type is a SAVED sample type — the tracker
+// charts by sample type, so an unrecognised type has nothing to trend against.
+function trackable(s){ return !!s.matched; }
 function renderTrackerList(){
-  document.getElementById('trkList').innerHTML=SAMPLES.map((s,i)=>
-    `<label style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-bottom:1px solid #f0f0f0;font-size:13px">
-       <input type="checkbox" class="trkChk" data-i="${i}" checked>
-       <b>${(s.batch?s.batch+' ':'')+(s.type||s.label)}</b>
-       <span style="color:#888">${s.error?'⚠️ '+s.error.code:''}</span></label>`).join('');
-  document.getElementById('trkAll').checked=true;
+  document.getElementById('trkList').innerHTML=SAMPLES.map((s,i)=>{
+    const ok=trackable(s);
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 11px;border-bottom:1px solid #f0f0f0;
+              font-size:13px;${ok?'':'background:#fdecea'}">
+       <input type="checkbox" class="trkChk" data-i="${i}" ${ok?'checked':'disabled'}>
+       <b style="${ok?'':'color:#a33'}">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</b>
+       <span style="color:${ok?'#888':'#a33'};font-size:12px">${ok?(s.error?'⚠️ '+s.error.code:''):'no saved sample type — will not be committed'}</span>
+     </label>`;}).join('');
+  const blocked=SAMPLES.filter(s=>!trackable(s)).length;
+  const all=document.getElementById('trkAll'); all.checked=true;
+  const m=document.getElementById('trkMsg');
+  if(blocked){ m.style.color='#a33';
+    m.textContent=blocked+' sample(s) have no saved sample type and cannot be tracked — add the type under Edit → Sample Types first.'; }
 }
-function trackerToggleAll(on){ document.querySelectorAll('.trkChk').forEach(c=>c.checked=on); }
+// "select all" never selects samples that aren't trackable
+function trackerToggleAll(on){ document.querySelectorAll('.trkChk').forEach(c=>{ if(!c.disabled) c.checked=on; }); }
 /* ---- read the shared workbook fresh (also used by the concurrency check) ---- */
 async function readTrackerState(handle){
   const file=await handle.getFile();
@@ -2918,6 +2935,14 @@ async function commitToTracker(){
   const msg=document.getElementById('trkMsg');
   const picked=[...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
   if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return; }
+  // hard stop: never write a sample whose type isn't a saved sample type
+  const bad=picked.filter(s=>!trackable(s));
+  if(bad.length){
+    msg.style.color='#a33';
+    msg.textContent='No saved sample type — not committing to tracker: '+bad.map(s=>s.type||s.label).join(', ');
+    addLog('TRACKER','Commit blocked — no saved sample type for: '+bad.map(s=>s.label).join(', '));
+    return;
+  }
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
   const btn=document.getElementById('trkCommit'); btn.disabled=true;
   msg.style.color='#0f4c81'; msg.textContent='Committing…';
@@ -2999,10 +3024,43 @@ async function importTrackerHistory(){
   }
 }
 
-// auto-finalize the moment the last error is cleared (not after a manual unlock)
+// Auto-lock once nothing needs attention. Wavelengths stay editable even when
+// finalized -- only report text and the layout controls are locked down.
 function maybeAutoFinalize(){
   if(!SAMPLES.length || FINALIZED || USER_UNLOCKED) return;
-  if(unresolvedCount()===0){ FINALIZED=true; addLog('REPORT','All errors resolved — reports auto-finalized & locked'); }
+  if(unresolvedCount()===0){ FINALIZED=true; addLog('REPORT','All errors resolved — reports auto-finalized & locked (wavelengths remain editable)'); }
+}
+
+/* ---- "imported clean — commit now?" prompt ---- */
+let NOTICE_DISMISSED=false;
+function closeImportNotice(){ NOTICE_DISMISSED=true; const n=document.getElementById('importNotice'); if(n) n.style.display='none'; }
+function showImportNotice(){
+  const n=document.getElementById('importNotice'); if(!n) return;
+  if(NOTICE_DISMISSED || !SAMPLES.length || unresolvedCount()>0){ n.style.display='none'; return; }
+  document.getElementById('importNoticeText').textContent=
+    '✅ All '+SAMPLES.length+' sample(s) imported successfully. Commit to tracker?';
+  n.style.display='flex';
+}
+function noticeCommit(){ closeImportNotice(); openTracker(); }
+// "Review data" — opens the reports for review at whatever this user is allowed to change
+function noticeReview(){
+  closeImportNotice();
+  if(isAdmin()){
+    FINALIZED=false; USER_UNLOCKED=true;   // keep it unlocked through later re-renders
+    applyFinalizeState(); setReportsEditable(true);
+    addLog('REPORT','Opened reports for review (admin — full editing unlocked)');
+  }else{
+    addLog('REPORT','Opened reports for review (analyst — wavelength changes allowed)');
+  }
+}
+// unlock/lock the report bodies for text editing (wavelengths are governed by FINALIZED)
+function setReportsEditable(edit){
+  document.querySelectorAll('#reports .report').forEach(rep=>{
+    rep.setAttribute('contenteditable', edit?'true':'false');
+    const btn=rep.querySelector('.lockbtn');
+    if(btn){ btn.textContent=edit?'🔓':'🔒'; btn.style.opacity=edit?'0.8':'0.45';
+      btn.title=edit?'Editing unlocked — click to lock':'Locked — click to unlock editing'; }
+  });
 }
 
 // Paste anywhere on the main screen imports data — same outcome as dropping a file.
@@ -3061,7 +3119,7 @@ function loadPasted(){
     // rebuild an .xlsx so the "Raw data (Excel)" download still works
     RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
     lastFile=null; LAST_WB=wb;
-    FINALIZED=false; USER_UNLOCKED=false;                           // fresh import starts unlocked
+    FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false;    // fresh import starts unlocked
     processWorkbook(wb); render();
     const bad=SAMPLES.filter(s=>s.error).length;
     document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
