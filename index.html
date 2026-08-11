@@ -3881,6 +3881,7 @@ function trackerRowsFor(s){
 }
 /* ---- tracker file handle (remembered between sessions) ---- */
 let TRACKER_HANDLE=null;
+let TRACKER_COMMIT_RUNNING=false;
 async function loadTrackerHandle(){ try{ TRACKER_HANDLE=(await idbGet('trackerHandle'))||null; }catch(e){ TRACKER_HANDLE=null; } updateTrackerFileLabel(); }
 function updateTrackerFileLabel(){ const el=document.getElementById('trkFile'); if(!el) return;
   el.textContent = TRACKER_HANDLE ? ('Using: '+TRACKER_HANDLE.name) : 'No tracker file chosen yet.';
@@ -3955,9 +3956,60 @@ function trackerColMap(headers){
     if(f && colFor[f[0]]===undefined) colFor[f[0]]=ci; });
   return colFor;
 }
-async function writeTrackerWorkbook(handle, doc){
+/* ---- resilient tracker writes ------------------------------------------------
+   Chromium's File System Access API can reject createWritable() when the file's
+   filesystem state changed underneath a cached FileSystemFileHandle.  This is
+   different from our optimistic-concurrency check: the check can pass and the
+   browser can still reject the subsequent writer creation.
+
+   Keep the existing surgical XlsxPatch architecture, but make the final write
+   a small, bounded transaction: retry transient filesystem-state failures,
+   always close the writer, and verify that the resulting file is still present.
+   No workbook content is rebuilt here, so embedded charts/hidden sheets remain
+   protected exactly as before.
+   -------------------------------------------------------------------------- */
+function trackerStateError(e){
+  const n=e&&e.name||'';
+  const m=String(e&&e.message||e||'');
+  return n==='InvalidStateError' || /state cached in an interface object/i.test(m);
+}
+function trackerRetryableWriteError(e){
+  const n=e&&e.name||'';
+  return trackerStateError(e) || n==='AbortError' || n==='NotFoundError';
+}
+async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+async function writeTrackerBytes(handle, bytes, opts={}){
+  const attempts=Math.max(1,opts.attempts||4);
+  let lastErr=null;
+  for(let i=0;i<attempts;i++){
+    let w=null;
+    try{
+      // Re-read the file immediately before opening the writer.  Apart from
+      // refreshing our view of disk state, this deliberately moves the stale
+      // cached-handle failure as close as possible to the actual write.
+      try{ await handle.getFile(); }catch(e){ if(!trackerRetryableWriteError(e)) throw e; }
+      w=await handle.createWritable({mode:'exclusive'});
+      await w.write(bytes);
+      await w.close();
+      w=null;
+      // Confirm that the entry still exists after the atomic writer close.
+      const after=await handle.getFile();
+      if(!after || !after.size) throw new Error('The tracker file could not be verified after saving.');
+      return {size:after.size,attempts:i+1};
+    }catch(e){
+      lastErr=e;
+      if(w){ try{ await w.abort(); }catch(_){} }
+      if(!trackerRetryableWriteError(e) || i===attempts-1) throw e;
+      await sleep(300 + Math.floor(Math.random()*500) + i*250);
+    }
+  }
+  throw lastErr||new Error('Unable to write tracker workbook.');
+}
+
+async function writeTrackerWorkbook(handle, doc, opts={}){
   const bytes=await doc.toBytes();
-  const w=await handle.createWritable(); await w.write(bytes); await w.close();
+  return writeTrackerBytes(handle,bytes,opts);
 }
 // The file picker hands back a 0-byte file when the user names a new tracker.
 // Seed it with just a header row; every commit after that is a surgical edit.
@@ -3965,7 +4017,7 @@ async function createTrackerWorkbook(handle, headers){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([headers]),TRACKER_SHEET);
   const buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-  const w=await handle.createWritable(); await w.write(buf); await w.close();
+  return writeTrackerBytes(handle,buf,{attempts:4});
 }
 /* ---- de-duplication ----
    One analyte of one batch of one product on one day is a single QC point. If
@@ -4010,6 +4062,8 @@ function trackerRowIndex(doc,colFor){
    THEIR data, so nothing is ever overwritten. ---- */
 async function commitToTracker(){
   const msg=document.getElementById('trkMsg');
+  if(TRACKER_COMMIT_RUNNING){ msg.style.color='#a33'; msg.textContent='A tracker commit is already in progress.'; return; }
+  TRACKER_COMMIT_RUNNING=true;
   const picked=[...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
   if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return; }
   // hard stop: never write a sample whose type isn't a saved sample type
@@ -4076,8 +4130,22 @@ async function commitToTracker(){
         await new Promise(r=>setTimeout(r,250+Math.random()*400));
         continue;
       }
-      await writeTrackerWorkbook(TRACKER_HANDLE, doc);
-      done=true;
+      try{
+        await writeTrackerWorkbook(TRACKER_HANDLE, doc, {attempts:4});
+        done=true;
+      }catch(writeErr){
+        // A Chromium InvalidStateError can occur after our optimistic check but
+        // before createWritable(). Treat it as a possible external replacement:
+        // discard this in-memory document and rebuild from the current disk copy.
+        // This preserves the other person's commit instead of overwriting it.
+        if(trackerStateError(writeErr)){
+          retries++;
+          msg.textContent='Tracker file changed while saving — refreshing and merging…';
+          await sleep(350 + Math.random()*650);
+          continue;
+        }
+        throw writeErr;
+      }
     }
     if(!done) throw new Error('The tracker file kept changing (someone else is committing). Please try again in a moment.');
     msg.style.color='#2e7d32';
@@ -4094,6 +4162,7 @@ async function commitToTracker(){
     addLog('ERROR','Tracker commit failed: '+m);
   }
   btn.disabled=false;
+  TRACKER_COMMIT_RUNNING=false;
 }
 /* ---- one-time migration: copy an existing tracker's history into the new file ---- */
 async function importTrackerHistory(){
