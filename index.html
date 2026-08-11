@@ -799,8 +799,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const wbEntry = byName.get('xl/workbook.xml');
     if (!wbEntry) throw new Error('That file is not an Excel workbook (no xl/workbook.xml).');
 
-    const wbXml = await entryText(wbEntry);
-    const relsXml = await entryText(byName.get('xl/_rels/workbook.xml.rels'));
+    let wbXml = await entryText(wbEntry);
+    let relsXml = await entryText(byName.get('xl/_rels/workbook.xml.rels'));
+    let ctXml = await entryText(byName.get('[Content_Types].xml'));
 
     const relTarget = {};
     let m;
@@ -815,7 +816,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     while ((m = shRe.exec(wbXml))) {
       const a = attrs(m[0]);
       const rid = a['r:id'] || a['relationships:id'] || a.id;
-      if (rid && relTarget[rid]) sheets.push({ name: unesc(a.name || ''), path: resolveTarget(relTarget[rid]) });
+      if (rid && relTarget[rid]) sheets.push({
+        name: unesc(a.name || ''), path: resolveTarget(relTarget[rid]),
+        sheetId: +(a.sheetId || 0), rid: rid, hidden: (a.state || 'visible') !== 'visible'
+      });
     }
     if (!sheets.length) throw new Error('That workbook has no worksheets.');
 
@@ -827,6 +831,92 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const sheetXml = await entryText(sheetEntry);
     const shared = parseSharedStrings(await entryText(byName.get('xl/sharedStrings.xml')));
     const styles = dateStyles(await entryText(byName.get('xl/styles.xml')));
+
+    /* --- part layer -----------------------------------------------------
+       Everything above reads one worksheet. This lets a caller add whole new
+       parts (a chart, a drawing, a worksheet) without knowing anything about
+       ZIP mechanics. Edits are staged here and deflated once, in toBytes(). */
+    const pending = new Map();          // path -> replacement text
+    const CT = {
+      sheet: 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml',
+      drawing: 'application/vnd.openxmlformats-officedocument.drawing+xml',
+      chart: 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml'
+    };
+    function dosNow() {
+      const d = new Date();
+      return { time: ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF,
+               date: (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF };
+    }
+    async function partText(path) {
+      if (pending.has(path)) return pending.get(path);
+      return byName.has(path) ? entryText(byName.get(path)) : null;
+    }
+    function setPart(path, text, contentType) {
+      if (!byName.has(path)) {
+        const st = dosNow();
+        const e = { name: path, nameBytes: UTF8_ENC.encode(path), madeBy: 20, version: 20,
+                    flags: 0, method: 8, time: st.time, date: st.date, crc: 0, usize: 0,
+                    data: new Uint8Array(0), attrExt: 0 };
+        entries.push(e); byName.set(path, e);
+        if (contentType) {
+          const tag = '<Override PartName="/' + path + '" ContentType="' + contentType + '"/>';
+          if (ctXml.indexOf('PartName="/' + path + '"') < 0)
+            ctXml = ctXml.replace('</Types>', tag + '</Types>');
+        }
+      }
+      pending.set(path, text);
+    }
+    // next free xl/<dir>/<stem>N.<ext>
+    function nextPart(dir, stem, ext) {
+      let max = 0;
+      const re = new RegExp('^' + dir + '/' + stem + '(\\d+)\\.' + ext + '$');
+      for (const e of entries) { const g = re.exec(e.name); if (g && +g[1] > max) max = +g[1]; }
+      return dir + '/' + stem + (max + 1) + '.' + ext;
+    }
+    function nextRelId(xml) {
+      let max = 0, g;
+      const re = /Id="rId(\d+)"/g;
+      while ((g = re.exec(xml))) if (+g[1] > max) max = +g[1];
+      return 'rId' + (max + 1);
+    }
+    function relsPathFor(partPath) {
+      const i = partPath.lastIndexOf('/');
+      return partPath.slice(0, i) + '/_rels' + partPath.slice(i) + '.rels';
+    }
+    const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+    const REL_TYPE = {
+      sheet: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet',
+      drawing: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing',
+      chart: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart'
+    };
+    // add a relationship to a part's .rels, creating the .rels part if needed
+    async function addRel(ownerPath, type, targetPath) {
+      const rp = relsPathFor(ownerPath);
+      let xml = await partText(rp);
+      if (!xml) xml = '<Relationships xmlns="' + REL_NS + '"></Relationships>';
+      const id = nextRelId(xml);
+      const tag = '<Relationship Type="' + type + '" Target="/' + targetPath + '" Id="' + id + '"/>';
+      setPart(rp, xml.replace('</Relationships>', tag + '</Relationships>'), null);
+      return id;
+    }
+
+    // add a worksheet: allocates the part, the workbook <sheet> entry and its relationship
+    function addSheet(name, xml, hidden) {
+      const path = nextPart('xl/worksheets', 'sheet', 'xml');
+      const rid = nextRelId(relsXml);
+      let maxId = 0;
+      for (const s of sheets) if (s.sheetId > maxId) maxId = s.sheetId;
+      relsXml = relsXml.replace('</Relationships>',
+        '<Relationship Type="' + REL_TYPE.sheet + '" Target="/' + path + '" Id="' + rid + '"/></Relationships>');
+      wbXml = wbXml.replace('</sheets>',
+        '<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+        + ' name="' + esc(name).replace(/"/g, '&quot;') + '" sheetId="' + (maxId + 1) + '"'
+        + ' state="' + (hidden ? 'hidden' : 'visible') + '" r:id="' + rid + '"/></sheets>');
+      setPart(path, xml, CT.sheet);
+      const rec = { name: name, path: path, sheetId: maxId + 1, rid: rid, hidden: !!hidden };
+      sheets.push(rec);
+      return rec;
+    }
 
     /* --- split off <sheetData> --- */
     const sdOpen = sheetXml.indexOf('<sheetData');
@@ -943,13 +1033,29 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         list.forEach(h => headers.push(String(h)));
       },
 
+      /* --- part-level surface, for callers that add whole sheets/charts --- */
+      sheets: sheets,
+      sheetNamed: function (name) {
+        const want = String(name || '').trim().toLowerCase();
+        return sheets.find(s => s.name.trim().toLowerCase() === want) || null;
+      },
+      partText: partText,
+      setPart: setPart,
+      nextPart: nextPart,
+      addRel: addRel,
+      addSheet: addSheet,
+      contentTypes: CT,
+      relTypes: REL_TYPE,
+
       toBytes: async function () {
         let body = '';
         for (const r of rows) body += renderRow(r);
         let xml = head + body + tail;
-        xml = setDimension(xml, maxRow, maxCol);
-        await setEntryText(sheetEntry, xml);
-        await setEntryText(wbEntry, ensureFullCalc(wbXml));
+        setPart(sheet.path, setDimension(xml, maxRow, maxCol));
+        setPart('xl/workbook.xml', ensureFullCalc(wbXml));
+        setPart('xl/_rels/workbook.xml.rels', relsXml);
+        setPart('[Content_Types].xml', ctXml);
+        for (const [path, text] of pending) await setEntryText(byName.get(path), text);
         return zipWrite(entries);
       }
     };
@@ -1004,6 +1110,353 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   }
 
   global.XlsxPatch = { supported: supported, open: open, colName: colName, crc32: crc32 };
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>
+/* =====================================================================
+   qccharts.js — build a QC trend chart tab for a product, in an existing
+   workbook, following the layout of QC Trend Charts TEMPLATE.xlsx exactly.
+
+   A product tab is nine coordinated parts. For "Allure" the template has:
+
+     Allure          visible sheet: a title, a note, and a <drawing> ref
+     _Allure         hidden helper: 5 columns per analyte x 5000 rows of
+                     formulas that sieve that analyte's points out of All Data
+     drawingN.xml    one anchor per chart, two per row down the visible sheet
+     chartN.xml      one line chart per analyte, 4 series, pointed at the helper
+
+   The helper columns per analyte block are:
+     date  measured  claim  warn  limit
+   where warn = claim x 0.93 and limit = claim x 0.90 — a floor, because these
+   are guaranteed minimums. An analyte with no label claim still gets a chart;
+   its claim/warn/limit columns just stay blank and only the measured line draws.
+
+   Nothing here is specific to the shipped template except those conventions:
+   the All Data column letters are resolved from the workbook's own header row,
+   so a tracker with a different column order still generates correct formulas.
+   ===================================================================== */
+(function (global) {
+  'use strict';
+
+  const ROWS = 5000;          // helper depth — matches the shipped template
+  const BLOCK = 5;            // date, measured, claim, warn, limit
+  const WARN = 0.9300;        // orange line, as a fraction of the label claim
+  const LIMIT = 0.9000;       // red line
+  const COLOR = { measured: '0F4C81', claim: '2E9B48', warn: 'E08A1E', limit: 'C0392B' };
+  const NOTE = 'Charts update automatically as ICP Reporter commits data.';
+  const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+  const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+  const colName = n => global.XlsxPatch.colName(n);
+  const esc = s => String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // a sheet name inside a formula: wrapped in apostrophes, its own doubled
+  const qSheet = s => "'" + String(s).replace(/'/g, "''") + "'";
+  // a text literal inside a formula: its quotes doubled, then XML-escaped
+  const qText = s => esc(String(s).replace(/"/g, '""'));
+
+  // Excel forbids : \ / ? * [ ] in a sheet name and caps it at 31 characters
+  function safeSheetName(name, taken) {
+    let base = String(name).replace(/[:\\\/?*\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31);
+    if (!base) base = 'Sheet';
+    const used = new Set((taken || []).map(t => t.toLowerCase()));
+    if (!used.has(base.toLowerCase())) return base;
+    for (let i = 2; i < 999; i++) {
+      const s = base.slice(0, 31 - String(i).length - 1) + ' ' + i;
+      if (!used.has(s.toLowerCase())) return s;
+    }
+    return base;
+  }
+
+  /* ---------------- the hidden helper sheet ----------------
+     Every row mirrors the same row of All Data, so a point lands on the helper
+     row matching its All Data row. That is why the sheet is 5000 rows deep even
+     when empty — it has to cover every row All Data will ever have. */
+  function helperSheetXml(product, elements, dataSheet, cols) {
+    const d = qSheet(dataSheet);
+    const pv = qText(product);
+    const cType = colName(cols.SampleType + 1), cEl = colName(cols.Element + 1);
+    const cDate = colName(cols.Date + 1), cMeas = colName(cols.Measured + 1);
+    const cClaim = colName(cols.LabelClaim + 1);
+    const lastCol = colName(Math.max(1, elements.length * BLOCK));
+
+    const out = [];
+    out.push('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+      '<sheetPr><outlinePr summaryBelow="1" summaryRight="1"/><pageSetUpPr/></sheetPr>',
+      '<dimension ref="A1:' + lastCol + ROWS + '"/>',
+      '<sheetViews><sheetView workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>',
+      '<sheetFormatPr baseColWidth="8" defaultRowHeight="15"/><sheetData>');
+
+    // header row — the chart series read their names straight off this row
+    out.push('<row r="1">');
+    elements.forEach((el, b) => {
+      const base = b * BLOCK;
+      ['' + el + ' date', '' + el + ' measured', 'claim', 'warn', 'limit'].forEach((h, j) => {
+        out.push('<c r="' + colName(base + j + 1) + '1" t="inlineStr"><is><t>' + esc(h) + '</t></is></c>');
+      });
+    });
+    out.push('</row>');
+
+    for (let r = 2; r <= ROWS; r++) {
+      out.push('<row r="' + r + '">');
+      for (let b = 0; b < elements.length; b++) {
+        const base = b * BLOCK;
+        const ev = qText(elements[b]);
+        const when = 'AND(' + d + '!$' + cType + r + '="' + pv + '",' + d + '!$' + cEl + r + '="' + ev + '")';
+        const claimCell = colName(base + 3) + r;
+        // A plain reference to an empty cell evaluates to 0, not "" — so an
+        // analyte with no label claim would draw flat lines at zero and drag the
+        // axis down with them. Pass blanks through as blanks instead.
+        const pull = c => { const ref = d + '!$' + c + r; return 'IF(' + ref + '="","",' + ref + ')'; };
+        out.push(
+          '<c r="' + colName(base + 1) + r + '"><f>IF(' + when + ',' + pull(cDate) + ',"")</f></c>',
+          '<c r="' + colName(base + 2) + r + '"><f>IF(' + when + ',' + pull(cMeas) + ',"")</f></c>',
+          '<c r="' + colName(base + 3) + r + '"><f>IF(' + when + ',' + pull(cClaim) + ',"")</f></c>',
+          '<c r="' + colName(base + 4) + r + '"><f>IF(' + claimCell + '="","",' + claimCell + '*' + WARN.toFixed(4) + ')</f></c>',
+          '<c r="' + colName(base + 5) + r + '"><f>IF(' + claimCell + '="","",' + claimCell + '*' + LIMIT.toFixed(4) + ')</f></c>');
+      }
+      out.push('</row>');
+    }
+    out.push('</sheetData><pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0.5" footer="0.5"/></worksheet>');
+    return out.join('');
+  }
+
+  // the analytes an existing helper sheet already covers, in column order
+  function helperElements(xml) {
+    if (!xml) return [];
+    const i = xml.indexOf('<sheetData');
+    if (i < 0) return [];
+    const end = xml.indexOf('</row>', i);
+    const row1 = end < 0 ? xml.slice(i, i + 200000) : xml.slice(i, end);
+    const texts = [];
+    const re = /<t\b[^>]*\/>|<t\b[^>]*>([\s\S]*?)<\/t>/g;
+    let m;
+    while ((m = re.exec(row1))) texts.push(m[1] === undefined ? '' : m[1]);
+    const out = [];
+    for (let k = 0; k < texts.length; k += BLOCK) {
+      const h = texts[k].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      out.push(h.replace(/\s+date$/i, ''));
+    }
+    return out;
+  }
+
+  /* ---------------- one chart ---------------- */
+  function series(idx, helper, catCol, valCol, color, dashed) {
+    const h = qSheet(helper);
+    const span = col => '$' + col + '$2:$' + col + '$' + ROWS;
+    return '<ser><idx val="' + idx + '"/><order val="' + idx + '"/>'
+      + '<tx><strRef><f>' + h + '!' + valCol + '1</f></strRef></tx>'
+      + '<spPr><a:ln xmlns:a="' + A_NS + '" w="20000"><a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill>'
+      + '<a:prstDash val="' + (dashed ? 'dash' : 'solid') + '"/></a:ln></spPr>'
+      + '<marker><symbol val="' + (dashed ? 'none' : 'circle') + '"/>' + (dashed ? '' : '<size val="6"/>')
+      + '<spPr><a:ln xmlns:a="' + A_NS + '"><a:prstDash val="solid"/></a:ln></spPr></marker>'
+      + '<cat><numRef><f>' + h + '!' + span(catCol) + '</f></numRef></cat>'
+      + '<val><numRef><f>' + h + '!' + span(valCol) + '</f></numRef></val>'
+      + '<smooth val="0"/></ser>';
+  }
+
+  function axisTitle(text) {
+    return '<title><tx><rich><a:bodyPr xmlns:a="' + A_NS + '"/><a:p xmlns:a="' + A_NS + '">'
+      + '<a:pPr><a:defRPr/></a:pPr><a:r><a:t>' + esc(text) + '</a:t></a:r></a:p></rich></tx></title>';
+  }
+
+  function chartXml(product, element, helper, block) {
+    const base = block * BLOCK;
+    const cDate = colName(base + 1), cMeas = colName(base + 2);
+    const cClaim = colName(base + 3), cWarn = colName(base + 4), cLimit = colName(base + 5);
+    const s = (i, col, color, dashed) => series(i, helper, cDate, col, color, dashed);
+    return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
+      + axisTitle(product + ' - ' + element)
+      + '<plotArea><lineChart><grouping val="standard"/>'
+      + s(0, cMeas, COLOR.measured, false)
+      + s(1, cClaim, COLOR.claim, false)
+      + s(2, cWarn, COLOR.warn, true)
+      + s(3, cLimit, COLOR.limit, true)
+      + '<axId val="10"/><axId val="100"/></lineChart>'
+      + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling><axPos val="l"/>'
+      + axisTitle('Date')
+      + '<majorTickMark val="none"/><minorTickMark val="none"/><crossAx val="100"/><lblOffset val="100"/></catAx>'
+      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling><axPos val="l"/><majorGridlines/>'
+      + axisTitle('%')
+      + '<majorTickMark val="none"/><minorTickMark val="none"/><crossAx val="10"/></valAx></plotArea>'
+      + '<legend><legendPos val="r"/></legend><plotVisOnly val="1"/><dispBlanksAs val="gap"/></chart></chartSpace>';
+  }
+
+  // charts sit two to a row: columns A and K, every 16 rows, under the title
+  function anchor(i, rid) {
+    return '<oneCellAnchor><from><col>' + ((i % 2) * 10) + '</col><colOff>0</colOff>'
+      + '<row>' + (3 + Math.floor(i / 2) * 16) + '</row><rowOff>0</rowOff></from>'
+      + '<ext cx="5400000" cy="2700000"/><graphicFrame><nvGraphicFramePr>'
+      + '<cNvPr id="' + (i + 1) + '" name="Chart ' + (i + 1) + '"/><cNvGraphicFramePr/></nvGraphicFramePr><xfrm/>'
+      + '<a:graphic xmlns:a="' + A_NS + '"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+      + '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="' + R_NS + '" r:id="' + rid + '"/>'
+      + '</a:graphicData></a:graphic></graphicFrame><clientData/></oneCellAnchor>';
+  }
+
+  function visibleSheetXml(product, rid, styleTitle, styleNote) {
+    const st = styleTitle ? ' s="' + styleTitle + '"' : '';
+    const sn = styleNote ? ' s="' + styleNote + '"' : '';
+    return '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      + '<sheetPr><outlinePr summaryBelow="1" summaryRight="1"/><pageSetUpPr/></sheetPr>'
+      + '<dimension ref="A1:A2"/>'
+      + '<sheetViews><sheetView workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>'
+      + '<sheetFormatPr baseColWidth="8" defaultRowHeight="15"/><sheetData>'
+      + '<row r="1"><c r="A1"' + st + ' t="inlineStr"><is><t>' + esc(product + ' - QC trend charts') + '</t></is></c></row>'
+      + '<row r="2"><c r="A2"' + sn + ' t="inlineStr"><is><t>' + esc(NOTE) + '</t></is></c></row>'
+      + '</sheetData><pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0.5" footer="0.5"/>'
+      + '<drawing xmlns:r="' + R_NS + '" r:id="' + rid + '"/></worksheet>';
+  }
+
+  /* ---------------- title styles ----------------
+     The shipped template styles the tab title bold 14pt 0F4C81 and the note
+     italic 10pt grey. Reuse those cellXfs if the workbook already has them,
+     otherwise append them — appending never shifts an existing index. */
+  async function titleStyles(doc) {
+    if (doc.__qcStyles) return doc.__qcStyles;
+    let xml = await doc.partText('xl/styles.xml');
+    if (!xml) return (doc.__qcStyles = { title: '', note: '' });
+
+    const fonts = [];
+    const fb = /<fonts\b[^>]*>([\s\S]*?)<\/fonts>/.exec(xml);
+    if (fb) { const re = /<font>[\s\S]*?<\/font>|<font\/>/g; let m; while ((m = re.exec(fb[1]))) fonts.push(m[0]); }
+    const xfs = [];
+    const xb = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml);
+    if (xb) { const re = /<xf\b[^>]*\/>|<xf\b[^>]*>[\s\S]*?<\/xf>/g; let m; while ((m = re.exec(xb[1]))) xfs.push(m[0]); }
+    if (!fb || !xb) return (doc.__qcStyles = { title: '', note: '' });
+
+    const wantTitle = '<font><b val="1"/><color rgb="000F4C81"/><sz val="14"/></font>';
+    const wantNote = '<font><i val="1"/><color rgb="00777777"/><sz val="10"/></font>';
+    const plainXf = f => '<xf numFmtId="0" fontId="' + f + '" fillId="0" borderId="0" pivotButton="0" quotePrefix="0" xfId="0"/>';
+
+    let newFonts = '', newXfs = '', addedF = 0, addedX = 0;
+    function resolve(wantFont) {
+      let fi = fonts.indexOf(wantFont);
+      if (fi < 0) { fi = fonts.length + addedF; newFonts += wantFont; addedF++; }
+      const xf = plainXf(fi);
+      let xi = xfs.indexOf(xf);
+      if (xi < 0) { xi = xfs.length + addedX; newXfs += xf; addedX++; }
+      return xi;
+    }
+    const title = resolve(wantTitle), note = resolve(wantNote);
+
+    if (addedF || addedX) {
+      xml = xml.replace(/<fonts\b([^>]*)>/, (all, a) =>
+        '<fonts' + a.replace(/\s+count="\d+"/, '') + ' count="' + (fonts.length + addedF) + '">');
+      xml = xml.replace('</fonts>', newFonts + '</fonts>');
+      xml = xml.replace(/<cellXfs\b([^>]*)>/, (all, a) =>
+        '<cellXfs' + a.replace(/\s+count="\d+"/, '') + ' count="' + (xfs.length + addedX) + '">');
+      xml = xml.replace('</cellXfs>', newXfs + '</cellXfs>');
+      doc.setPart('xl/styles.xml', xml);
+    }
+    return (doc.__qcStyles = { title: String(title), note: String(note) });
+  }
+
+  /* ---------------- the drawing a visible tab points at ---------------- */
+  async function drawingPathOf(doc, sheetPath) {
+    const i = sheetPath.lastIndexOf('/');
+    const rels = await doc.partText(sheetPath.slice(0, i) + '/_rels' + sheetPath.slice(i) + '.rels');
+    if (!rels) return null;
+    const m = /<Relationship\b[^>]*drawing"[^>]*Target="([^"]+)"/.exec(rels)
+      || /<Relationship\b[^>]*Target="([^"]+)"[^>]*drawing"/.exec(rels);
+    if (!m) return null;
+    return m[1].charAt(0) === '/' ? m[1].slice(1) : 'xl/' + m[1].replace(/^\.\//, '');
+  }
+
+  /* =====================================================================
+     ensureProduct — the one entry point.
+       doc        an open XlsxPatch document
+       product    the SampleType exactly as it is written into All Data
+       elements   analyte names exactly as they are written into All Data
+       dataSheet  name of the data sheet ("All Data")
+       columns    canonical field -> 0-based column index on that sheet
+     Returns {status, sheet, added} where status is 'created' | 'extended'
+     | 'current' | 'skipped'. Never removes or rewrites an analyte that is
+     already charted, so a hand-edited tab is safe.
+     ===================================================================== */
+  async function ensureProduct(doc, product, elements, dataSheet, columns) {
+    const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
+    for (const k of need) {
+      if (columns[k] === undefined)
+        return { status: 'skipped', sheet: null, added: [], reason: 'the tracker sheet has no "' + k + '" column' };
+    }
+    const wanted = [];
+    const seen = new Set();
+    elements.forEach(e => {
+      const t = String(e || '').trim();
+      if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); wanted.push(t); }
+    });
+    if (!wanted.length) return { status: 'current', sheet: null, added: [] };
+
+    const taken = doc.sheets.map(s => s.name);
+    const vis = doc.sheetNamed(product);
+
+    /* --- an existing tab: only ever add analytes it is missing --- */
+    if (vis) {
+      const helper = doc.sheetNamed('_' + product) || doc.sheetNamed(safeSheetName('_' + product, []));
+      if (!helper)
+        return { status: 'skipped', sheet: vis.name, added: [],
+                 reason: 'its chart tab was not built by this app (no matching helper sheet)' };
+      const drawing = await drawingPathOf(doc, vis.path);
+      if (!drawing)
+        return { status: 'skipped', sheet: vis.name, added: [], reason: 'its chart tab has no drawing' };
+
+      const have = helperElements(await doc.partText(helper.path));
+      const haveLower = new Set(have.map(h => h.toLowerCase()));
+      const missing = wanted.filter(w => !haveLower.has(w.toLowerCase()));
+      if (!missing.length) return { status: 'current', sheet: vis.name, added: [] };
+
+      const all = have.concat(missing);
+      doc.setPart(helper.path, helperSheetXml(product, all, dataSheet, columns));
+
+      let dxml = await doc.partText(drawing);
+      const at = (dxml.match(/<oneCellAnchor>/g) || []).length;
+      let add = '';
+      for (let k = 0; k < missing.length; k++) {
+        const cp = doc.nextPart('xl/charts', 'chart', 'xml');
+        doc.setPart(cp, chartXml(product, missing[k], helper.name, have.length + k), doc.contentTypes.chart);
+        const rid = await doc.addRel(drawing, doc.relTypes.chart, cp);
+        add += anchor(at + k, rid);
+      }
+      doc.setPart(drawing, dxml.replace('</wsDr>', add + '</wsDr>'));
+      return { status: 'extended', sheet: vis.name, added: missing };
+    }
+
+    /* --- no tab yet: build the whole thing --- */
+    const style = await titleStyles(doc);
+    const visName = safeSheetName(product, taken);
+    const helperName = safeSheetName('_' + product, taken.concat([visName]));
+
+    doc.addSheet(helperName, helperSheetXml(product, wanted, dataSheet, columns), true);
+
+    const drawing = doc.nextPart('xl/drawings', 'drawing', 'xml');
+    doc.setPart(drawing, '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"></wsDr>',
+      doc.contentTypes.drawing);
+
+    let anchors = '';
+    for (let k = 0; k < wanted.length; k++) {
+      const cp = doc.nextPart('xl/charts', 'chart', 'xml');
+      doc.setPart(cp, chartXml(product, wanted[k], helperName, k), doc.contentTypes.chart);
+      const rid = await doc.addRel(drawing, doc.relTypes.chart, cp);
+      anchors += anchor(k, rid);
+    }
+    doc.setPart(drawing, '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">'
+      + anchors + '</wsDr>');
+
+    // the visible sheet has to exist before we can hang a relationship off it
+    const sheetRec = doc.addSheet(visName, '', false);
+    const drid = await doc.addRel(sheetRec.path, doc.relTypes.drawing, drawing);
+    doc.setPart(sheetRec.path, visibleSheetXml(product, drid, style.title, style.note));
+
+    return { status: 'created', sheet: visName, added: wanted };
+  }
+
+  global.QcCharts = {
+    ensureProduct: ensureProduct,
+    helperElements: helperElements,
+    safeSheetName: safeSheetName,
+    ROWS: ROWS
+  };
 })(typeof self !== 'undefined' ? self : this);
 
 </script>
@@ -1898,7 +2351,7 @@ function renderUsers(){
   rows+=Object.keys(users).map(u=>{ const r=users[u]; const nm=((r.first||'')+' '+(r.last||'')).trim();
     return `<div style="${item}"><b>${nm||u}</b>
       <span style="color:#888">— ${roleLabel(r.role||'analyst')}${nm?` · @${u}`:''}</span>
-      ${rmBtn('removeUser('+JSON.stringify(u)+')')}</div>`;}).join(TRK_SEP);
+      ${rmBtn('removeUser('+JSON.stringify(u)+')')}</div>`;}).join('');
   document.getElementById('usersList').innerHTML=rows;
 }
 function addUser(){
@@ -2109,7 +2562,7 @@ function _openMaster(){
 }
 function renderMasterControls(){
   const cur=reportColors();
-  const opts=COLOR_SCHEMES.map(s=>`<option value="${s.id}" ${s.primary===cur.primary?'selected':''}>${s.name}</option>`).join(TRK_SEP);
+  const opts=COLOR_SCHEMES.map(s=>`<option value="${s.id}" ${s.primary===cur.primary?'selected':''}>${s.name}</option>`).join('');
   document.getElementById('masterControls').innerHTML=
     `<label style="font-size:13px;font-weight:bold;color:#0f4c81">Report color scheme:
       <select onchange="setScheme(this.value)" style="padding:5px;margin-left:6px;border:1px solid #aaa;border-radius:3px">${opts}</select></label>`;
@@ -2718,7 +3171,7 @@ function typeOptionsHTML(current){
   const cur=String(current||'').trim().toLowerCase();
   return names.map(n=>{const v=String(n).split('/')[0].trim();
     const hit=!!cur && String(n).split('/').some(x=>x.trim().toLowerCase()===cur);
-    return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;}).join(TRK_SEP);
+    return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;}).join('');
 }
 
 // error banner with interactive Yes/No + type-picker controls
@@ -2842,7 +3295,7 @@ function reportHTML(s,idx){
     return cell('<b>'+ac.label+(withStar?star(a):'')+'</b>'+(ac.coeff?`<div style="${coeffNote}">conv. coefficient = ${ac.coeff}</div>`:'')); };
 
   const macroRows=s.macro.map(m=>`
-    <tr>${nameCell(m,true)}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join(TRK_SEP);
+    <tr>${nameCell(m,true)}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
   // phosphite footnote shown only when a "*" appears in the table
   const footnote=s.hasPhosphite?`<div style="font-size:11px;font-style:italic;color:#888;margin:2px 0 6px">
       ${te('phosphiteNote')}</div>`:'';
@@ -2850,14 +3303,14 @@ function reportHTML(s,idx){
   // micronutrient table: list spec'd micronutrients; if none, one "n/a" row
   const addRows=(s.additional&&s.additional.length)
     ? s.additional.map(a=>`
-        <tr>${nameCell(a,false)}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join(TRK_SEP)
+        <tr>${nameCell(a,false)}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
     : `<tr>${cell('n/a').repeat(4)}</tr>`;
 
   const metalRows=s.metals.map(hm=>`
     <tr><td style="${S.td}"><b>${hm.name}</b></td>
         <td style="${S.td}">${hm.limit.toFixed(3)}</td>
         <td style="${S.td}${hm.detected==='Y'?'':';'+S.nd}">${hm.detected}${hm.qty?(' — '+hm.qty):''}</td>
-        ${wlCell(hm.el,hm.wl,'metal')}</tr>`).join(TRK_SEP);
+        ${wlCell(hm.el,hm.wl,'metal')}</tr>`).join('');
 
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">${ICO_LOCK}</button>` : '';
@@ -2919,7 +3372,7 @@ function renderWarnings(){
   // one interactive banner per problem sample, listed below the raw data on the sliding panel
   box.innerHTML=`<div style="font-weight:bold;color:${hard?'#a33':'#7a5c00'};font-size:13px;margin:10px 0 4px">
       ${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention${hard?` — ${hard} unrecognized (defaulted to P₂O₅/K₂O only)`:' (auto-matched past small typos — please verify)'}</div>`
-    + bad.map(s=>buildErrBanner(s)).join(TRK_SEP);
+    + bad.map(s=>buildErrBanner(s)).join('');
 }
 // on-screen preview of the original raw data (excluded from exports & print)
 function rawPreviewHTML(){
@@ -2929,8 +3382,8 @@ function rawPreviewHTML(){
   const rows=RAW_GRID.map(r=>{
     const isHdr=r.some(c=>/solution label/i.test(String(c)));
     const st=isHdr?thR:tdR;
-    return '<tr>'+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join(TRK_SEP)+'</tr>';
-  }).join(TRK_SEP);
+    return '<tr>'+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
+  }).join('');
   return `<div class="raw-preview" style="margin-top:10px">
      <div style="color:#9aa6ad;font-size:11px;letter-spacing:.3px;text-transform:uppercase;margin-bottom:1px">Source instrument: Agilent ICP-OES 5800</div>
      <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
@@ -2963,7 +3416,7 @@ function render(){
         </span>
       </div>
       ${reportHTML(s,i)}
-    </div>`).join(TRK_SEP);
+    </div>`).join('');
   document.getElementById('toolbar').style.display='flex';
   document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
@@ -2979,8 +3432,8 @@ function layoutPanel(s,i){
   const st=sampleTableVis(s);
   const eles=Object.keys(OPTIMUM_WAVELENGTHS).sort();
   const cb=(k,label)=>`<label style="margin-right:14px"><input type="checkbox" ${st[k]?'checked':''} onclick="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
-  const chips=(s.metalSpecs||[]).map(m=>`<span style="display:inline-block;background:#eef;border:1px solid #ccd;border-radius:10px;padding:1px 8px;margin:2px;font-size:11px">${m.name||m.el} <b style="cursor:pointer;color:#922" onclick="reportRemoveMetal(${i},'${m.el}')">✕</b></span>`).join(TRK_SEP);
-  const opts=eles.map(e=>`<option value="${e}">${e}</option>`).join(TRK_SEP);
+  const chips=(s.metalSpecs||[]).map(m=>`<span style="display:inline-block;background:#eef;border:1px solid #ccd;border-radius:10px;padding:1px 8px;margin:2px;font-size:11px">${m.name||m.el} <b style="cursor:pointer;color:#922" onclick="reportRemoveMetal(${i},'${m.el}')">✕</b></span>`).join('');
+  const opts=eles.map(e=>`<option value="${e}">${e}</option>`).join('');
   // sample-type picker for THIS report (fixes a wrong type without re-importing)
   const tOpts=typeOptionsHTML(s.type);
   const curOpt = !s.type ? '<option value="" selected>\u2014 none detected \u2014</option>'
@@ -3052,7 +3505,7 @@ function openWlMenu(cell){
   const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}','${String(val).replace(/'/g,"\\'")}')">${cur==val?'✓ ':''}${label}</button>`;
   let html=opt('optimum','Optimum line'+(optWl?` (${optWl} nm)`:''));
   const alt=cols.filter(c=>!(optWl && Math.abs(c.wl-optWl)<0.01));
-  if(alt.length) html+=alt.map(c=>opt(c.wl, c.wl+' nm')).join(TRK_SEP);
+  if(alt.length) html+=alt.map(c=>opt(c.wl, c.wl+' nm')).join('');
   html+='<div style="border-top:1px solid #eee;margin:2px 0"></div>'+opt('average','Average of all lines');
   const menu=document.createElement('div'); menu.id='wlMenu'; menu.innerHTML=html;
   document.body.appendChild(menu);
@@ -3291,7 +3744,7 @@ function combinedName(ext){ return 'ICP Reports '+(fmtDate(RAW_DATE)||new Date()
 function downloadCombinedWord(){
   const reps=reportEls(); if(!reps.length) return;
   const brk='<br clear=all style="mso-special-character:line-break;page-break-before:always">';
-  const inner=reps.map((r,i)=>(i?brk:'')+reportExportHTML(r)).join(TRK_SEP);
+  const inner=reps.map((r,i)=>(i?brk:'')+reportExportHTML(r)).join('');
   dl(docFromHTML(inner), combinedName('.doc'));
   addLog('EXPORT','Downloaded all reports as one Word doc');
 }
@@ -3461,13 +3914,22 @@ function renderTrackerList(){
               font-size:13px;${ok?'':'background:#fdecea'}">
        <input type="checkbox" class="trkChk" data-i="${i}" ${ok?'checked':'disabled'}>
        <b style="${ok?'':'color:#a33'}">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</b>
-       <span style="color:${ok?'#888':'#a33'};font-size:12px">${ok?(s.error?'⚠️ '+s.error.code:''):'no saved sample type — will not be committed'}</span>
-     </label>`;}).join(TRK_SEP);
-  const blocked=SAMPLES.filter(s=>!trackable(s)).length;
+       <span style="color:${ok?'#888':'#a33'};font-size:12px">${ok?(s.error?'⚠️ '+s.error.code:''):'sample type not confirmed — will not be charted'}</span>
+     </label>`;}).join('');
+  const blocked=SAMPLES.filter(s=>!trackable(s));
   const all=document.getElementById('trkAll'); all.checked=true;
   const m=document.getElementById('trkMsg');
-  if(blocked){ m.style.color='#a33';
-    m.textContent=blocked+' sample(s) have no saved sample type and cannot be tracked — add the type under Edit → Sample Types first.'; }
+  if(blocked.length){ m.style.color='#a33'; m.textContent=blockedNotice(blocked); }
+}
+// Name the samples that won't be charted, and say exactly what unblocks them.
+// The tracker charts by sample type, so an unconfirmed type has nothing to trend
+// against — once it's confirmed the chart tab is generated on the next commit.
+function blockedNotice(list){
+  const names=list.map(s=>(s.batch?s.batch+' ':'')+(s.type||s.label));
+  const many=names.length>1;
+  return names.join(', ')+' will not be charted because '+(many?'their sample types are':'its sample type is')
+    +' not confirmed. Confirm '+(many?'them':'it')+' under Edit → Sample Types, then commit again — '
+    +'the charts are built automatically from there.';
 }
 // "select all" never selects samples that aren't trackable
 function trackerToggleAll(on){ document.querySelectorAll('.trkChk').forEach(c=>{ if(!c.disabled) c.checked=on; }); }
@@ -3516,6 +3978,21 @@ function trackerKeyOf(r){
   if(TRK_KEY.some(k=>r[k]===undefined)) return '';
   return TRK_KEY.map(k=>trkKeyPart(r[k])).join(TRK_SEP);
 }
+/* ---- what a product needs charted ----
+   Every macro and micro analyte the sample type defines, whether or not it has
+   a label claim — a claim only decides whether the warn/limit bands are drawn.
+   Heavy metals are deliberately excluded: they are pass/fail against a ceiling,
+   not a trend against a guaranteed minimum, so they don't belong on these charts. */
+function chartableElements(samples){
+  const out=[], seen={};
+  samples.forEach(s=>trackerRowsFor(s).forEach(r=>{
+    if(r.Table!=='Macro' && r.Table!=='Micro') return;
+    const el=String(r.Element||'').trim(); if(!el) return;
+    const k=el.toLowerCase(); if(seen[k]) return;
+    seen[k]=1; out.push(el);
+  }));
+  return out;
+}
 // key -> index into doc.dataRows(); empty when the sheet lacks one of the key columns
 function trackerRowIndex(doc,colFor){
   const idx={};
@@ -3539,8 +4016,8 @@ async function commitToTracker(){
   const bad=picked.filter(s=>!trackable(s));
   if(bad.length){
     msg.style.color='#a33';
-    msg.textContent='No saved sample type — not committing to tracker: '+bad.map(s=>s.type||s.label).join(', ');
-    addLog('TRACKER','Commit blocked — no saved sample type for: '+bad.map(s=>s.label).join(', '));
+    msg.textContent=blockedNotice(bad);
+    addLog('TRACKER','Commit blocked — sample type not confirmed for: '+bad.map(s=>s.label).join(', '));
     return;
   }
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
@@ -3555,7 +4032,7 @@ async function commitToTracker(){
     // a just-picked file is empty — lay down the header row so every commit from
     // here on is an in-place edit of a real workbook
     if(!(await TRACKER_HANDLE.getFile()).size) await createTrackerWorkbook(TRACKER_HANDLE,TRK_HEADERS);
-    let added=0, updated=0, done=false, retries=0;
+    let added=0, updated=0, done=false, retries=0, charted=[], extended=[];
     for(let attempt=0; attempt<5 && !done; attempt++){
       const st=await readTrackerState(TRACKER_HANDLE);
       const doc=st.doc;
@@ -3575,6 +4052,23 @@ async function commitToTracker(){
           added++;
         }
       }));
+      // give every product in this commit a chart tab — build one if the workbook
+      // has none, or add blocks for analytes an existing tab doesn't cover yet
+      charted=[]; extended=[];
+      const byProduct={};
+      picked.forEach(s=>{ const p=trkType(s.type||s.label); (byProduct[p]=byProduct[p]||[]).push(s); });
+      for(const product of Object.keys(byProduct)){
+        msg.textContent='Building charts for '+product+'…';
+        const res=await QcCharts.ensureProduct(doc, product, chartableElements(byProduct[product]),
+                                               doc.sheetName, colFor);
+        if(res.status==='created'){ charted.push(product);
+          addLog('TRACKER','Generated a chart tab for "'+product+'" ('+res.added.length+' analytes)',{analytes:res.added}); }
+        else if(res.status==='extended'){ extended.push(product+' (+'+res.added.join(', ')+')');
+          addLog('TRACKER','Added '+res.added.length+' chart(s) to the "'+res.sheet+'" tab',{analytes:res.added}); }
+        else if(res.status==='skipped')
+          addLog('TRACKER','No chart tab generated for "'+product+'" — '+res.reason);
+      }
+      msg.textContent='Saving…';
       // did anyone else write while we were building? if so, redo on their version
       const check=await TRACKER_HANDLE.getFile();
       if(check.lastModified!==st.stamp || check.size!==st.size){
@@ -3588,7 +4082,9 @@ async function commitToTracker(){
     if(!done) throw new Error('The tracker file kept changing (someone else is committing). Please try again in a moment.');
     msg.style.color='#2e7d32';
     msg.textContent='✅ Committed '+(added+updated)+' row(s)'+(updated?' ('+updated+' updated in place)':'')
-      +' for '+picked.length+' sample(s) to '+TRACKER_HANDLE.name+(retries?' (merged after '+retries+' concurrent edit(s))':'');
+      +' for '+picked.length+' sample(s) to '+TRACKER_HANDLE.name+(retries?' (merged after '+retries+' concurrent edit(s))':'')
+      +(charted.length?' — built a new chart tab for '+charted.join(', '):'')
+      +(extended.length?' — added charts to '+extended.join(', '):'');
     addLog('TRACKER','Committed '+picked.length+' sample(s) ('+added+' new, '+updated+' updated) to "'+TRACKER_HANDLE.name+'" by '+userFullName(CURRENT_USER),
       {samples:picked.map(s=>s.label), rows:added+updated, added:added, updated:updated, file:TRACKER_HANDLE.name, mergeRetries:retries});
     setTimeout(closeTracker,2400);
@@ -3972,7 +4468,7 @@ function renderCatalogList(){
   document.getElementById('catalogList').innerHTML=
     `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
       <tr><th style="${thL}" width="26%">Sample type</th><th style="${thL}">Reported tables &amp; claims</th>${adm?`<th style="${thL}" width="120">Actions</th>`:''}</tr>
-      ${rows.join(TRK_SEP)||`<tr><td style="${tdL}" colspan="3"><i>No sample types yet — add one below.</i></td></tr>`}
+      ${rows.join('')||`<tr><td style="${tdL}" colspan="3"><i>No sample types yet — add one below.</i></td></tr>`}
     </table>
     <div style="color:#888;font-size:11px;margin-top:5px">A report shows only the tables its sample type defines (Macro, Micro and/or Heavy Metals).${adm?' All types are user-defined and saved on this computer.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
     ${adm?`<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -4032,11 +4528,11 @@ function specRowHTML(sp){
   // falls back to its first option (Ag) and Save silently rewrites the spec to Silver.
   const orphan = sp.el && !choices.includes(sp.el);
   const els=(orphan?`<option value="${sp.el}" selected>${sp.el} — unrecognised element</option>`:'')
-    +choices.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join(TRK_SEP)
+    +choices.map(e=>`<option value="${e}" ${sp.el===e?'selected':''}>${e} — ${elLabel(e)}</option>`).join('')
     +`<option value="__add__">+ Add custom element…</option>`;
   const ci=sp.factor!=null?convIndexForFactor(sp.factor):0;
   const isCustom=CONV_OPTIONS[ci].factor==='custom';
-  const conv=CONV_OPTIONS.map((o,i)=>`<option value="${i}" ${i===ci?'selected':''}>${o.label}</option>`).join(TRK_SEP);
+  const conv=CONV_OPTIONS.map((o,i)=>`<option value="${i}" ${i===ci?'selected':''}>${o.label}</option>`).join('');
   const isHeavy=sp.table==='heavy';
   const converted = !isHeavy && CONV_OPTIONS[ci].factor!==1;
   const molVal = sp.form || (CONV_OPTIONS[ci].form||'');
@@ -4069,8 +4565,8 @@ function renderAddForm(){
   const existing=(function(){const seen=new Set(),out=[];const add=(d,k)=>{if(k&&!seen.has(k)){seen.add(k);out.push(d);}};
     EFF.forEach(e=>add(e.names,e._aliases[0].key)); const c=loadCustom();Object.keys(c).forEach(k=>add(c[k].disp,k));
     const tm=loadTypeMetals();Object.keys(tm).forEach(k=>add(tm[k].disp,k)); return out;})();
-  const opts=existing.map(n=>`<option>${n}</option>`).join(TRK_SEP);
-  const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join(TRK_SEP);
+  const opts=existing.map(n=>`<option>${n}</option>`).join('');
+  const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
   const note='Set each analyte to <b>Macro</b>, <b>Micro</b>, or <b>Heavy Metal</b> — the report shows only the tables you use. '+
     'For Heavy Metal rows the number is the allowed limit %. (P→P₂O₅ and K→K₂O auto-set to Macro.)';
 
