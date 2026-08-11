@@ -851,6 +851,32 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (pending.has(path)) return pending.get(path);
       return byName.has(path) ? entryText(byName.get(path)) : null;
     }
+    // Just the start of a part. Reading a helper sheet's header row should not
+    // cost 19 MB of inflate, so stop the stream as soon as we have enough.
+    async function partTextHead(path, maxBytes) {
+      if (pending.has(path)) return pending.get(path).slice(0, maxBytes);
+      const e = byName.get(path);
+      if (!e) return null;
+      if (e.method === 0) return UTF8_DEC.decode(e.data.subarray(0, maxBytes));
+      const ds = new DecompressionStream('deflate-raw');
+      const w = ds.writable.getWriter();
+      w.write(e.data).catch(() => {});          // may reject once we cancel — expected
+      w.close().catch(() => {});
+      const r = ds.readable.getReader();
+      const chunks = [];
+      let len = 0;
+      try {
+        while (len < maxBytes) {
+          const { value, done } = await r.read();
+          if (done) break;
+          chunks.push(value); len += value.length;
+        }
+      } finally { r.cancel().catch(() => {}); }
+      const out = new Uint8Array(len);
+      let o = 0;
+      for (const c of chunks) { out.set(c, o); o += c.length; }
+      return UTF8_DEC.decode(out);
+    }
     function setPart(path, text, contentType) {
       if (!byName.has(path)) {
         const st = dosNow();
@@ -1040,6 +1066,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         return sheets.find(s => s.name.trim().toLowerCase() === want) || null;
       },
       partText: partText,
+      partTextHead: partTextHead,
       setPart: setPart,
       nextPart: nextPart,
       addRel: addRel,
@@ -1121,8 +1148,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
    A product tab is nine coordinated parts. For "Allure" the template has:
 
      Allure          visible sheet: a title, a note, and a <drawing> ref
-     _Allure         hidden helper: 5 columns per analyte x 5000 rows of
-                     formulas that sieve that analyte's points out of All Data
+     _Allure         hidden helper: 5 columns per analyte holding that analyte's
+                     points, packed from row 2 down
      drawingN.xml    one anchor per chart, two per row down the visible sheet
      chartN.xml      one line chart per analyte, 4 series, pointed at the helper
 
@@ -1132,14 +1159,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
    are guaranteed minimums. An analyte with no label claim still gets a chart;
    its claim/warn/limit columns just stay blank and only the measured line draws.
 
-   Nothing here is specific to the shipped template except those conventions:
-   the All Data column letters are resolved from the workbook's own header row,
-   so a tracker with a different column order still generates correct formulas.
+   sync() is the entry point: it gives every product a tab and then refills every
+   helper it owns from the tracker rows.
    ===================================================================== */
 (function (global) {
   'use strict';
 
-  const ROWS = 5000;          // helper depth — matches the shipped template
+  // How far down the helper columns every chart series reads. Nothing is stored
+  // out there — it is just the ceiling on points per analyte, per product.
+  const ROWS = 5000;
   const BLOCK = 5;            // date, measured, claim, warn, limit
   const WARN = 0.9300;        // orange line, as a fraction of the label claim
   const LIMIT = 0.9000;       // red line
@@ -1151,10 +1179,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   const colName = n => global.XlsxPatch.colName(n);
   const esc = s => String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  // a sheet name inside a formula: wrapped in apostrophes, its own doubled
+  // a sheet name inside a chart reference: wrapped in apostrophes, its own doubled
   const qSheet = s => "'" + String(s).replace(/'/g, "''") + "'";
-  // a text literal inside a formula: its quotes doubled, then XML-escaped
-  const qText = s => esc(String(s).replace(/"/g, '""'));
 
   // Excel forbids : \ / ? * [ ] in a sheet name and caps it at 31 characters
   function safeSheetName(name, taken) {
@@ -1170,21 +1196,51 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   }
 
   /* ---------------- the hidden helper sheet ----------------
-     Every row mirrors the same row of All Data, so a point lands on the helper
-     row matching its All Data row. That is why the sheet is 5000 rows deep even
-     when empty — it has to cover every row All Data will ever have. */
-  function helperSheetXml(product, elements, dataSheet, cols) {
-    const d = qSheet(dataSheet);
-    const pv = qText(product);
-    const cType = colName(cols.SampleType + 1), cEl = colName(cols.Element + 1);
-    const cDate = colName(cols.Date + 1), cMeas = colName(cols.Measured + 1);
-    const cClaim = colName(cols.LabelClaim + 1);
-    const lastCol = colName(Math.max(1, elements.length * BLOCK));
+     The original template filled these with 5 formula columns per analyte on
+     every one of 5000 rows, mirroring All Data row for row. That capped the
+     tracker at ~4999 rows, cost ~19 MB per product and made the workbook take
+     35 s to open — 3.4 M formulas to plot a few hundred points.
 
+     Instead the app computes the values and writes only the rows that have
+     data, packed from row 2 down. The charts still read the same columns over
+     the same $2:$5000 range, so no chart has to change — but the 5000 now means
+     5000 points *per analyte per product* rather than 5000 rows in total.
+
+     Trade-off: these are values, not formulas, so a hand edit to All Data shows
+     up the next time the app writes (any commit, or Rebuild charts). */
+  function num(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    const s = String(v == null ? '' : v).trim().replace(/,/g, '');
+    if (!s) return null;
+    const n = parseFloat(s);
+    return isFinite(n) && /^[-+]?[0-9.]+(e[-+]?\d+)?$/i.test(s) ? n : null;
+  }
+  // tracker dates arrive as ISO from the app and, historically, as M/D/YYYY
+  function dateKey(v) {
+    const s = String(v == null ? '' : v).trim();
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    if (m) return +m[1] * 10000 + +m[2] * 100 + +m[3];
+    m = /^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/.exec(s);
+    if (m) return +m[3] * 10000 + +m[1] * 100 + +m[2];
+    return 0;
+  }
+  function cell(ref, v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'number') return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr"><is><t>' + esc(v) + '</t></is></c>';
+  }
+  // points: element (lowercased) -> [{date, measured, claim}], already filtered
+  function helperSheetXml(elements, points) {
+    let depth = 1;
+    elements.forEach(el => {
+      const p = points[el.toLowerCase()];
+      if (p && p.length + 1 > depth) depth = p.length + 1;
+    });
+    const lastCol = colName(Math.max(1, elements.length * BLOCK));
     const out = [];
     out.push('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
       '<sheetPr><outlinePr summaryBelow="1" summaryRight="1"/><pageSetUpPr/></sheetPr>',
-      '<dimension ref="A1:' + lastCol + ROWS + '"/>',
+      '<dimension ref="A1:' + lastCol + Math.max(1, depth) + '"/>',
       '<sheetViews><sheetView workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>',
       '<sheetFormatPr baseColWidth="8" defaultRowHeight="15"/><sheetData>');
 
@@ -1192,34 +1248,48 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     out.push('<row r="1">');
     elements.forEach((el, b) => {
       const base = b * BLOCK;
-      ['' + el + ' date', '' + el + ' measured', 'claim', 'warn', 'limit'].forEach((h, j) => {
+      [el + ' date', el + ' measured', 'claim', 'warn', 'limit'].forEach((h, j) => {
         out.push('<c r="' + colName(base + j + 1) + '1" t="inlineStr"><is><t>' + esc(h) + '</t></is></c>');
       });
     });
     out.push('</row>');
 
-    for (let r = 2; r <= ROWS; r++) {
-      out.push('<row r="' + r + '">');
-      for (let b = 0; b < elements.length; b++) {
+    for (let r = 2; r <= depth; r++) {
+      let row = '';
+      elements.forEach((el, b) => {
+        const p = (points[el.toLowerCase()] || [])[r - 2];
+        if (!p) return;
         const base = b * BLOCK;
-        const ev = qText(elements[b]);
-        const when = 'AND(' + d + '!$' + cType + r + '="' + pv + '",' + d + '!$' + cEl + r + '="' + ev + '")';
-        const claimCell = colName(base + 3) + r;
-        // A plain reference to an empty cell evaluates to 0, not "" — so an
-        // analyte with no label claim would draw flat lines at zero and drag the
-        // axis down with them. Pass blanks through as blanks instead.
-        const pull = c => { const ref = d + '!$' + c + r; return 'IF(' + ref + '="","",' + ref + ')'; };
-        out.push(
-          '<c r="' + colName(base + 1) + r + '"><f>IF(' + when + ',' + pull(cDate) + ',"")</f></c>',
-          '<c r="' + colName(base + 2) + r + '"><f>IF(' + when + ',' + pull(cMeas) + ',"")</f></c>',
-          '<c r="' + colName(base + 3) + r + '"><f>IF(' + when + ',' + pull(cClaim) + ',"")</f></c>',
-          '<c r="' + colName(base + 4) + r + '"><f>IF(' + claimCell + '="","",' + claimCell + '*' + WARN.toFixed(4) + ')</f></c>',
-          '<c r="' + colName(base + 5) + r + '"><f>IF(' + claimCell + '="","",' + claimCell + '*' + LIMIT.toFixed(4) + ')</f></c>');
-      }
-      out.push('</row>');
+        const claim = p.claim;
+        row += cell(colName(base + 1) + r, p.date)
+          + cell(colName(base + 2) + r, p.measured)
+          + cell(colName(base + 3) + r, claim)
+          + cell(colName(base + 4) + r, claim === null ? '' : round4(claim * WARN))
+          + cell(colName(base + 5) + r, claim === null ? '' : round4(claim * LIMIT));
+      });
+      if (row) out.push('<row r="' + r + '">' + row + '</row>');
     }
     out.push('</sheetData><pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0.5" footer="0.5"/></worksheet>');
     return out.join('');
+  }
+  const round4 = n => Math.round(n * 10000) / 10000;
+
+  /* ---- gather one product's points out of the tracker rows ---- */
+  function pointsFor(rows, cols, product, elements) {
+    const want = {};
+    elements.forEach(e => { want[e.toLowerCase()] = []; });
+    const p = String(product).trim().toLowerCase();
+    rows.forEach(r => {
+      if (String(r[cols.SampleType] == null ? '' : r[cols.SampleType]).trim().toLowerCase() !== p) return;
+      const el = String(r[cols.Element] == null ? '' : r[cols.Element]).trim().toLowerCase();
+      if (!want[el]) return;
+      const measured = num(r[cols.Measured]);
+      if (measured === null) return;                 // Non-Detect / N/A: nothing to plot
+      want[el].push({ date: String(r[cols.Date] == null ? '' : r[cols.Date]).trim(),
+                      measured: measured, claim: num(r[cols.LabelClaim]) });
+    });
+    Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
+    return want;
   }
 
   // the analytes an existing helper sheet already covers, in column order
@@ -1364,22 +1434,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   }
 
   /* =====================================================================
-     ensureProduct — the one entry point.
-       doc        an open XlsxPatch document
+     ensureProduct — give one product a tab with a chart per analyte.
        product    the SampleType exactly as it is written into All Data
        elements   analyte names exactly as they are written into All Data
-       dataSheet  name of the data sheet ("All Data")
-       columns    canonical field -> 0-based column index on that sheet
      Returns {status, sheet, added} where status is 'created' | 'extended'
      | 'current' | 'skipped'. Never removes or rewrites an analyte that is
-     already charted, so a hand-edited tab is safe.
+     already charted, so a hand-edited tab is safe. The helper is left empty —
+     sync() fills every helper once the tabs exist.
      ===================================================================== */
-  async function ensureProduct(doc, product, elements, dataSheet, columns) {
-    const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
-    for (const k of need) {
-      if (columns[k] === undefined)
-        return { status: 'skipped', sheet: null, added: [], reason: 'the tracker sheet has no "' + k + '" column' };
-    }
+  async function ensureProduct(doc, product, elements) {
     const wanted = [];
     const seen = new Set();
     elements.forEach(e => {
@@ -1407,7 +1470,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (!missing.length) return { status: 'current', sheet: vis.name, added: [] };
 
       const all = have.concat(missing);
-      doc.setPart(helper.path, helperSheetXml(product, all, dataSheet, columns));
+      doc.setPart(helper.path, helperSheetXml(all, {}));   // values land in sync()
 
       let dxml = await doc.partText(drawing);
       const at = (dxml.match(/<oneCellAnchor>/g) || []).length;
@@ -1427,7 +1490,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const visName = safeSheetName(product, taken);
     const helperName = safeSheetName('_' + product, taken.concat([visName]));
 
-    doc.addSheet(helperName, helperSheetXml(product, wanted, dataSheet, columns), true);
+    doc.addSheet(helperName, helperSheetXml(wanted, {}), true);   // values land in sync()
 
     const drawing = doc.nextPart('xl/drawings', 'drawing', 'xml');
     doc.setPart(drawing, '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"></wsDr>',
@@ -1448,10 +1511,56 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const drid = await doc.addRel(sheetRec.path, doc.relTypes.drawing, drawing);
     doc.setPart(sheetRec.path, visibleSheetXml(product, drid, style.title, style.note));
 
-    return { status: 'created', sheet: visName, added: wanted };
+    return { status: 'created', sheet: visName, added: wanted, product: product };
+  }
+
+  /* =====================================================================
+     sync — make the workbook's charts match its data.
+       products  [{name, elements}] for the products in this commit
+       columns   canonical field -> 0-based column index on the data sheet
+       rows      every data row of the tracker sheet (doc.dataRows())
+     Gives each product a tab, then refills every helper this app owns from
+     `rows`. Refilling all of them — not just the ones committed — is what makes
+     a hand edit to All Data show up, and what repairs a helper left stale by an
+     older build. Tabs with no matching helper are somebody else's and are left
+     strictly alone.
+     ===================================================================== */
+  async function sync(doc, products, columns, rows) {
+    const out = { created: [], extended: [], skipped: [], rebuilt: 0 };
+    const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
+    const missingCol = need.find(k => columns[k] === undefined);
+    if (missingCol) {
+      out.skipped.push({ product: null, reason: 'the tracker sheet has no "' + missingCol + '" column' });
+      return out;
+    }
+
+    // tab name -> the SampleType it charts (they differ only if the name had to
+    // be sanitised or shortened to fit Excel's 31-character limit)
+    const productOf = {};
+    for (const p of products || []) {
+      const r = await ensureProduct(doc, p.name, p.elements);
+      productOf[(r.sheet || p.name).toLowerCase()] = p.name;
+      if (r.status === 'created') out.created.push(r.sheet);
+      else if (r.status === 'extended') out.extended.push({ sheet: r.sheet, added: r.added });
+      else if (r.status === 'skipped') out.skipped.push({ product: p.name, reason: r.reason });
+    }
+
+    for (const s of doc.sheets.slice()) {
+      if (s.hidden) continue;
+      const helper = doc.sheetNamed('_' + s.name);
+      if (!helper) continue;                       // not a product tab of ours
+      // the header row is all we need, so don't inflate a whole helper part
+      const els = helperElements(await doc.partTextHead(helper.path, 65536));
+      if (!els.length) continue;
+      const product = productOf[s.name.toLowerCase()] || s.name;
+      doc.setPart(helper.path, helperSheetXml(els, pointsFor(rows, columns, product, els)));
+      out.rebuilt++;
+    }
+    return out;
   }
 
   global.QcCharts = {
+    sync: sync,
     ensureProduct: ensureProduct,
     helperElements: helperElements,
     safeSheetName: safeSheetName,
@@ -1759,11 +1868,16 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <div style="margin-top:14px">
       <div style="font-weight:bold;color:#0f4c81;font-size:13px;margin-bottom:4px">Tracker workbook (shared location)</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="act sec" onclick="pickTrackerFile()">Choose tracker file…</button>
+        <button class="act sec" onclick="pickTrackerFile()">Select tracker file…</button>
+        <button class="act sec" onclick="newTrackerFile()" title="Create a brand-new, empty tracker workbook">New tracker…</button>
         <button class="act sec" onclick="importTrackerHistory()" title="One-time: copy all rows from your existing tracker workbook into this one">Import history…</button>
         <span id="trkFile" style="font-size:12px;color:#555"></span>
       </div>
-      <div style="font-size:11px;color:#888;margin-top:4px">Pick the shared .xlsx once — it's remembered, and every machine can commit to the same file.
+      <div style="font-size:11px;color:#888;margin-top:4px">
+      <b>Select tracker file…</b> picks the workbook you commit <i>into</i> — the one that keeps the charts.
+      <b>Import history…</b> is a one-time step that copies rows <i>out of</i> a different, older tracker into it.
+      They are two different files: don't pick the same one for both.<br>
+      Pick the shared .xlsx once — it's remembered, and every machine can commit to the same file.
       Rows are added to the <b>All Data</b> sheet in place, so a workbook's charts and formulas are left untouched and fill in on their own.
       Re-committing the same product, batch, date and element corrects that row instead of duplicating it, and simultaneous commits are merged automatically.
       The workbook must be closed in Excel while you commit.</div>
@@ -1952,7 +2066,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.6';   // bump on each release
+const APP_VERSION='v5.7';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3851,6 +3965,30 @@ const TRK_FIELDS=[
 const TRK_HEADERS=TRK_FIELDS.map(f=>f[0]);
 const INSTRUMENT_NAME='Agilent ICP-OES 5800';
 const trkNum=v=>{ const n=parseFloat(v); return isFinite(n)?n:''; };
+/* ---- one spelling per analyte, one format per date ----
+   The charts match on the Element string, so "Phosphorus (P2O5)" and
+   "Phosphorus (P)" are two different analytes as far as Excel is concerned —
+   which is exactly how a migrated history ends up silently uncharted. The older
+   Python tracker wrote the compound form (P2O5, K2O, CaO); this app writes the
+   elemental symbol. Canonicalise on the element name, which both forms share. */
+const EL_SYMBOL_BY_NAME=(()=>{ const m={};
+  Object.keys(ELEMENT_NAMES).forEach(sym=>{ m[ELEMENT_NAMES[sym].toLowerCase()]=sym; }); return m; })();
+function trkCanonEl(v){
+  const s=String(v==null?'':v).trim();
+  const m=/^(.*?)\s*\(([^()]*)\)\s*$/.exec(s);
+  if(!m) return s;
+  const sym=EL_SYMBOL_BY_NAME[m[1].trim().toLowerCase()];
+  return sym ? (ELEMENT_NAMES[sym]+' ('+sym+')') : s;
+}
+// ISO dates sort correctly and match across old and new rows; the printed report
+// keeps its own locale format, this is only what goes into the tracker.
+function trkDateIso(v){
+  const s=String(v==null?'':v).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  const m=/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/.exec(s);
+  if(m) return m[3]+'-'+String(m[1]).padStart(2,'0')+'-'+String(m[2]).padStart(2,'0');
+  return s;
+}
 // Element strings must match the tracker's convention ("Magnesium (Mg)") so new
 // points land on the same chart series as the existing history.
 function trkElement(a){
@@ -3862,7 +4000,7 @@ function trkType(t){ return String(t||'').trim().replace(/\S+/g,w=>w.charAt(0).t
 // build the long-format rows a single sample contributes
 function trackerRowsFor(s){
   const who=userFullName(CURRENT_USER), when=new Date().toISOString().slice(0,19).replace('T',' ');
-  const base={Date:s.reportDate||'', SampleType:trkType(s.type||s.label), Batch:s.batch||'',
+  const base={Date:trkDateIso(s.reportDate||''), SampleType:trkType(s.type||s.label), Batch:s.batch||'',
               Instrument:INSTRUMENT_NAME, 'Submitted By':who, ImportedAt:when,
               SourceFile:'ICP Reporter '+APP_VERSION, Flag:''};
   const out=[];
@@ -3881,20 +4019,46 @@ function trackerRowsFor(s){
 }
 /* ---- tracker file handle (remembered between sessions) ---- */
 let TRACKER_HANDLE=null;
-let TRACKER_COMMIT_RUNNING=false;
 async function loadTrackerHandle(){ try{ TRACKER_HANDLE=(await idbGet('trackerHandle'))||null; }catch(e){ TRACKER_HANDLE=null; } updateTrackerFileLabel(); }
 function updateTrackerFileLabel(){ const el=document.getElementById('trkFile'); if(!el) return;
-  el.textContent = TRACKER_HANDLE ? ('Using: '+TRACKER_HANDLE.name) : 'No tracker file chosen yet.';
-  el.style.color = TRACKER_HANDLE ? '#2e7d32' : '#a33'; }
+  el.textContent = TRACKER_HANDLE ? ('Using: '+TRACKER_HANDLE.name+'  ['+APP_VERSION+']')
+                                  : 'No tracker file chosen yet.  ['+APP_VERSION+']';
+  el.style.color = TRACKER_HANDLE ? '#2e7d32' : '#a33';
+  // don't wait for a failed commit to reveal that the remembered file is gone
+  if(TRACKER_HANDLE) trackerFileMissing().then(gone=>{ if(!gone) return;
+    el.textContent='"'+TRACKER_HANDLE.name+'" is no longer where it was chosen from — select it again.'
+      +'  ['+APP_VERSION+']';
+    el.style.color='#a33'; });
+}
+const TRK_XLSX_TYPES=[{description:'Excel workbook',
+  accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}];
+/* Pick an EXISTING tracker with the open picker.
+   This must never be showSaveFilePicker: a save dialog truncates the file to
+   zero bytes the moment you confirm the overwrite prompt, so merely *selecting*
+   an existing workbook destroyed it — charts and all — before a single row was
+   written. Creating a new tracker is a separate, explicitly-labelled action. */
 async function pickTrackerFile(){
-  if(!window.showSaveFilePicker){ alert('Choosing a shared tracker file needs Chrome or Edge.'); return; }
+  if(!window.showOpenFilePicker){ alert('Choosing a shared tracker file needs Chrome or Edge.'); return; }
   try{
-    const h=await window.showSaveFilePicker({suggestedName:'QC Trend Tracker.xlsx',
-      types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
-    TRACKER_HANDLE=h; await idbSet('trackerHandle',h);
-    addLog('TRACKER','Tracker workbook set to "'+h.name+'"');
-    updateTrackerFileLabel();
+    const [h]=await window.showOpenFilePicker({types:TRK_XLSX_TYPES, multiple:false});
+    await setTrackerHandle(h,'selected');
   }catch(e){ if(e&&e.name==='AbortError') return; alert('Could not set the tracker file: '+(e&&e.message||e)); }
+}
+// The only path allowed to create — and therefore blank — a file.
+async function newTrackerFile(){
+  if(!window.showSaveFilePicker){ alert('Creating a tracker file needs Chrome or Edge.'); return; }
+  if(!confirm('Create a NEW, empty tracker workbook.\n\n'
+    +'If you pick a file that already exists it will be replaced and its charts lost. '
+    +'To use an existing tracker, cancel and choose "Select tracker file…" instead.')) return;
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:'QC Trend Tracker.xlsx', types:TRK_XLSX_TYPES});
+    await setTrackerHandle(h,'created');
+  }catch(e){ if(e&&e.name==='AbortError') return; alert('Could not create the tracker file: '+(e&&e.message||e)); }
+}
+async function setTrackerHandle(h,how){
+  TRACKER_HANDLE=h; await idbSet('trackerHandle',h);
+  addLog('TRACKER','Tracker workbook '+how+': "'+h.name+'"');
+  updateTrackerFileLabel();
 }
 /* ---- the dialog ---- */
 function openTracker(){
@@ -3942,12 +4106,51 @@ function trackerToggleAll(on){ document.querySelectorAll('.trkChk').forEach(c=>{
    model that has no concept of a chart, so it silently dropped them.) ---- */
 async function readTrackerState(handle){
   const file=await handle.getFile();
-  const state={doc:null, headers:null, stamp:file.lastModified, size:file.size};
+  const state={doc:null, headers:null, size:file.size};
   if(!file.size) return state;          // brand-new file — createTrackerWorkbook() seeds it
   const bytes=new Uint8Array(await file.arrayBuffer());
   state.doc=await XlsxPatch.open(bytes,TRACKER_SHEET);
   if(state.doc.headers.length) state.headers=state.doc.headers.slice();
   return state;
+}
+/* ---- surviving a sync client ----
+   getFile() hands back a snapshot of the file's state. OneDrive and Google Drive
+   re-write and re-stamp a file for seconds after we save it, which invalidates
+   that snapshot and makes Chrome throw InvalidStateError mid-read or mid-write.
+   It is transient: take a fresh snapshot and try again. ---- */
+function isStaleHandleError(e){
+  const n=e&&e.name||'';
+  return n==='InvalidStateError' || n==='NotReadableError';
+}
+/* A remembered handle is a pointer to a path. Move, rename or delete that file
+   and the handle survives, but every operation on it throws NotFoundError —
+   which reaches the user as "a requested file could not be found at the time an
+   operation was processed" and explains nothing. Say what actually happened. */
+function trackerErrorText(e){
+  if((e&&e.name)==='NotFoundError')
+    return 'the tracker file is no longer where it was chosen from — it has been moved, renamed or '
+      +'deleted. Click "Select tracker file…" and pick it again.';
+  return e&&e.message||String(e);
+}
+// true when the remembered tracker no longer exists
+async function trackerFileMissing(){
+  if(!TRACKER_HANDLE) return false;
+  try{ await TRACKER_HANDLE.getFile(); return false; }
+  catch(e){ return (e&&e.name)==='NotFoundError'; }
+}
+async function withFreshHandle(handle, fn, onWait){
+  let last=null;
+  for(let i=0;i<4;i++){
+    try{ return await fn(); }
+    catch(e){
+      if(!isStaleHandleError(e) || i===3) throw e;
+      last=e;
+      if(onWait) onWait();
+      await new Promise(r=>setTimeout(r,700+i*900));   // outlast a sync, not a scheduler tick
+      try{ await handle.getFile(); }catch(_){}          // re-snapshot before retrying
+    }
+  }
+  throw last;
 }
 function trackerColMap(headers){
   const colFor={};
@@ -3956,68 +4159,27 @@ function trackerColMap(headers){
     if(f && colFor[f[0]]===undefined) colFor[f[0]]=ci; });
   return colFor;
 }
-/* ---- resilient tracker writes ------------------------------------------------
-   Chromium's File System Access API can reject createWritable() when the file's
-   filesystem state changed underneath a cached FileSystemFileHandle.  This is
-   different from our optimistic-concurrency check: the check can pass and the
-   browser can still reject the subsequent writer creation.
-
-   Keep the existing surgical XlsxPatch architecture, but make the final write
-   a small, bounded transaction: retry transient filesystem-state failures,
-   always close the writer, and verify that the resulting file is still present.
-   No workbook content is rebuilt here, so embedded charts/hidden sheets remain
-   protected exactly as before.
-   -------------------------------------------------------------------------- */
-function trackerStateError(e){
-  const n=e&&e.name||'';
-  const m=String(e&&e.message||e||'');
-  return n==='InvalidStateError' || /state cached in an interface object/i.test(m);
+async function writeTrackerBytes(handle, bytes, onWait){
+  await withFreshHandle(handle, async ()=>{
+    const w=await handle.createWritable();
+    try{ await w.write(bytes); await w.close(); }
+    catch(e){ try{ await w.abort(); }catch(_){} throw e; }
+  }, onWait);
 }
-function trackerRetryableWriteError(e){
-  const n=e&&e.name||'';
-  return trackerStateError(e) || n==='AbortError' || n==='NotFoundError';
-}
-async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-async function writeTrackerBytes(handle, bytes, opts={}){
-  const attempts=Math.max(1,opts.attempts||4);
-  let lastErr=null;
-  for(let i=0;i<attempts;i++){
-    let w=null;
-    try{
-      // Re-read the file immediately before opening the writer.  Apart from
-      // refreshing our view of disk state, this deliberately moves the stale
-      // cached-handle failure as close as possible to the actual write.
-      try{ await handle.getFile(); }catch(e){ if(!trackerRetryableWriteError(e)) throw e; }
-      w=await handle.createWritable({mode:'exclusive'});
-      await w.write(bytes);
-      await w.close();
-      w=null;
-      // Confirm that the entry still exists after the atomic writer close.
-      const after=await handle.getFile();
-      if(!after || !after.size) throw new Error('The tracker file could not be verified after saving.');
-      return {size:after.size,attempts:i+1};
-    }catch(e){
-      lastErr=e;
-      if(w){ try{ await w.abort(); }catch(_){} }
-      if(!trackerRetryableWriteError(e) || i===attempts-1) throw e;
-      await sleep(300 + Math.floor(Math.random()*500) + i*250);
-    }
-  }
-  throw lastErr||new Error('Unable to write tracker workbook.');
-}
-
-async function writeTrackerWorkbook(handle, doc, opts={}){
-  const bytes=await doc.toBytes();
-  return writeTrackerBytes(handle,bytes,opts);
+async function writeTrackerWorkbook(handle, doc, onWait){
+  await writeTrackerBytes(handle, await doc.toBytes(), onWait);
 }
 // The file picker hands back a 0-byte file when the user names a new tracker.
 // Seed it with just a header row; every commit after that is a surgical edit.
 async function createTrackerWorkbook(handle, headers){
+  // Guard: this path REPLACES the file. A cloud drive can briefly report 0 bytes
+  // for a file it is still materialising, and seeding then would destroy a real
+  // tracker. Re-check immediately before writing and refuse if anything is there.
+  if((await handle.getFile()).size)
+    throw new Error('The tracker file changed while it was being set up. Nothing was written — try again.');
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([headers]),TRACKER_SHEET);
-  const buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-  return writeTrackerBytes(handle,buf,{attempts:4});
+  await writeTrackerBytes(handle, XLSX.write(wb,{type:'array',bookType:'xlsx'}));
 }
 /* ---- de-duplication ----
    One analyte of one batch of one product on one day is a single QC point. If
@@ -4057,13 +4219,18 @@ function trackerRowIndex(doc,colFor){
   return idx;
 }
 /* ---- append the selected samples, safe against two people committing at once ----
-   Optimistic concurrency: read -> build -> re-read and confirm the file hasn't
-   changed -> write. If someone else committed in between we start over on top of
-   THEIR data, so nothing is ever overwritten. ---- */
+   Optimistic concurrency: read -> build -> confirm the file hasn't changed ->
+   write. If someone else committed in between we start over on top of THEIR
+   data, so nothing is ever overwritten.
+
+   The check compares SIZE ONLY, deliberately. It used to compare lastModified
+   as well, which made this unusable on a synced folder: OneDrive and Google
+   Drive re-stamp a file for seconds after each save, so every commit looked
+   like a rival commit, burned all five attempts and failed with "someone else
+   is committing" when nobody was. A sync client re-writes the same bytes; only
+   a real commit changes the length. ---- */
 async function commitToTracker(){
   const msg=document.getElementById('trkMsg');
-  if(TRACKER_COMMIT_RUNNING){ msg.style.color='#a33'; msg.textContent='A tracker commit is already in progress.'; return; }
-  TRACKER_COMMIT_RUNNING=true;
   const picked=[...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
   if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return; }
   // hard stop: never write a sample whose type isn't a saved sample type
@@ -4088,7 +4255,8 @@ async function commitToTracker(){
     if(!(await TRACKER_HANDLE.getFile()).size) await createTrackerWorkbook(TRACKER_HANDLE,TRK_HEADERS);
     let added=0, updated=0, done=false, retries=0, charted=[], extended=[];
     for(let attempt=0; attempt<5 && !done; attempt++){
-      const st=await readTrackerState(TRACKER_HANDLE);
+      const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
+        ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
       const doc=st.doc;
       let headers=st.headers, colFor;
       if(headers){ colFor=trackerColMap(headers); }
@@ -4106,48 +4274,33 @@ async function commitToTracker(){
           added++;
         }
       }));
-      // give every product in this commit a chart tab — build one if the workbook
-      // has none, or add blocks for analytes an existing tab doesn't cover yet
-      charted=[]; extended=[];
+      // give every product in this commit a chart tab, then refill every helper
+      // sheet from the data so the charts match what's actually in All Data
+      msg.textContent='Building charts…';
       const byProduct={};
       picked.forEach(s=>{ const p=trkType(s.type||s.label); (byProduct[p]=byProduct[p]||[]).push(s); });
-      for(const product of Object.keys(byProduct)){
-        msg.textContent='Building charts for '+product+'…';
-        const res=await QcCharts.ensureProduct(doc, product, chartableElements(byProduct[product]),
-                                               doc.sheetName, colFor);
-        if(res.status==='created'){ charted.push(product);
-          addLog('TRACKER','Generated a chart tab for "'+product+'" ('+res.added.length+' analytes)',{analytes:res.added}); }
-        else if(res.status==='extended'){ extended.push(product+' (+'+res.added.join(', ')+')');
-          addLog('TRACKER','Added '+res.added.length+' chart(s) to the "'+res.sheet+'" tab',{analytes:res.added}); }
-        else if(res.status==='skipped')
-          addLog('TRACKER','No chart tab generated for "'+product+'" — '+res.reason);
-      }
+      const sync=await QcCharts.sync(doc,
+        Object.keys(byProduct).map(p=>({name:p, elements:chartableElements(byProduct[p])})),
+        colFor, doc.dataRows());
+      charted=sync.created;
+      extended=sync.extended.map(e=>e.sheet+' (+'+e.added.join(', ')+')');
+      sync.created.forEach(s=>addLog('TRACKER','Generated a chart tab for "'+s+'"'));
+      sync.extended.forEach(e=>addLog('TRACKER','Added '+e.added.length+' chart(s) to the "'+e.sheet+'" tab',{analytes:e.added}));
+      sync.skipped.forEach(s=>addLog('TRACKER','No chart tab for "'+(s.product||'')+'" — '+s.reason));
       msg.textContent='Saving…';
       // did anyone else write while we were building? if so, redo on their version
       const check=await TRACKER_HANDLE.getFile();
-      if(check.lastModified!==st.stamp || check.size!==st.size){
+      if(check.size!==st.size){
         retries++; msg.textContent='Another commit landed first — merging and retrying…';
-        await new Promise(r=>setTimeout(r,250+Math.random()*400));
+        await new Promise(r=>setTimeout(r,400+Math.random()*600));
         continue;
       }
-      try{
-        await writeTrackerWorkbook(TRACKER_HANDLE, doc, {attempts:4});
-        done=true;
-      }catch(writeErr){
-        // A Chromium InvalidStateError can occur after our optimistic check but
-        // before createWritable(). Treat it as a possible external replacement:
-        // discard this in-memory document and rebuild from the current disk copy.
-        // This preserves the other person's commit instead of overwriting it.
-        if(trackerStateError(writeErr)){
-          retries++;
-          msg.textContent='Tracker file changed while saving — refreshing and merging…';
-          await sleep(350 + Math.random()*650);
-          continue;
-        }
-        throw writeErr;
-      }
+      await writeTrackerWorkbook(TRACKER_HANDLE, doc,
+        ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+      done=true;
     }
-    if(!done) throw new Error('The tracker file kept changing (someone else is committing). Please try again in a moment.');
+    if(!done) throw new Error('The tracker file changed on every attempt. If it lives in OneDrive or '
+      +'Google Drive, wait for syncing to finish; otherwise someone else may be committing right now.');
     msg.style.color='#2e7d32';
     msg.textContent='✅ Committed '+(added+updated)+' row(s)'+(updated?' ('+updated+' updated in place)':'')
       +' for '+picked.length+' sample(s) to '+TRACKER_HANDLE.name+(retries?' (merged after '+retries+' concurrent edit(s))':'')
@@ -4157,12 +4310,11 @@ async function commitToTracker(){
       {samples:picked.map(s=>s.label), rows:added+updated, added:added, updated:updated, file:TRACKER_HANDLE.name, mergeRetries:retries});
     setTimeout(closeTracker,2400);
   }catch(e){
-    const m=e&&e.message||String(e);
+    const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Commit failed: '+m;
     addLog('ERROR','Tracker commit failed: '+m);
   }
   btn.disabled=false;
-  TRACKER_COMMIT_RUNNING=false;
 }
 /* ---- one-time migration: copy an existing tracker's history into the new file ---- */
 async function importTrackerHistory(){
@@ -4181,7 +4333,13 @@ async function importTrackerHistory(){
     const sheet=wbOld.SheetNames.includes(TRACKER_SHEET)?TRACKER_SHEET:wbOld.SheetNames[0];
     if(!sheet) throw new Error('No sheets found in that workbook.');
     const old=XLSX.utils.sheet_to_json(wbOld.Sheets[sheet],{header:1,raw:false,defval:''});
-    if(old.length<2) throw new Error('No data rows found on "'+sheet+'".');
+    // Easy mistake: picking the destination (or a fresh template) as the source.
+    // Say which file was read and what to pick instead, rather than just "no rows".
+    if(old.length<2) throw new Error('"'+f.name+'" has no data rows on its "'+sheet+'" sheet — '
+      +(TRACKER_HANDLE && f.name===TRACKER_HANDLE.name
+         ? 'that is the tracker you are importing INTO. '
+         : 'that looks like an empty tracker. ')
+      +'Choose the workbook that already holds your history (your old QC Trend Charts.xlsx).');
     const oldHdr=old[0].map(c=>String(c).trim());
     if(!(await TRACKER_HANDLE.getFile()).size) await createTrackerWorkbook(TRACKER_HANDLE,oldHdr);
     const st=await readTrackerState(TRACKER_HANDLE);
@@ -4190,25 +4348,44 @@ async function importTrackerHistory(){
     if(!headers){ headers=oldHdr.slice(); doc.setHeaders(headers); }   // adopt the old layout wholesale
     const oldMap=trackerColMap(oldHdr), newMap=trackerColMap(headers);
     const seen=trackerRowIndex(doc,newMap);
-    let moved=0, replaced=0;
+    let moved=0, replaced=0, renamed=0;
+    const products={};
     for(let i=1;i<old.length;i++){
       const r=old[i]; if(!r || r.every(c=>String(c||'').trim()==='')) continue;
       const cells={}, fields={};
       Object.keys(oldMap).forEach(k=>{
         if(newMap[k]===undefined) return;
-        const v=r[oldMap[k]]!==undefined?r[oldMap[k]]:'';
+        let v=r[oldMap[k]]!==undefined?r[oldMap[k]]:'';
+        // bring the older tracker's spellings into line, or its rows land in
+        // All Data and then chart against nothing
+        if(k==='Element'){ const c=trkCanonEl(v); if(c!==String(v).trim()) renamed++; v=c; }
+        else if(k==='Date') v=trkDateIso(v);
         cells[newMap[k]]=v; fields[k]=v;
       });
       const key=trackerKeyOf(fields);
       if(key && seen[key]!==undefined){ doc.updateRow(seen[key],cells); replaced++; }
       else{ doc.appendRow(cells); if(key) seen[key]=doc.rowCount()-1; moved++; }
+      const p=String(fields.SampleType||'').trim(), el=String(fields.Element||'').trim();
+      if(p && el){ (products[p]=products[p]||{})[el]=1; }
     }
-    await writeTrackerWorkbook(TRACKER_HANDLE, doc);
+    // chart what just arrived: every product in the history, with the analytes
+    // that history actually contains
+    msg.textContent='Building charts…';
+    const sync=await QcCharts.sync(doc,
+      Object.keys(products).map(p=>({name:p, elements:Object.keys(products[p])})),
+      newMap, doc.dataRows());
+    await writeTrackerWorkbook(TRACKER_HANDLE, doc,
+      ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     msg.style.color='#2e7d32';
-    msg.textContent='✅ Imported '+moved+' historical row(s)'+(replaced?' ('+replaced+' already present, updated)':'')+' from "'+f.name+'".';
-    addLog('TRACKER','Imported '+moved+' historical rows ('+replaced+' updated) from "'+f.name+'" into "'+TRACKER_HANDLE.name+'"');
+    msg.textContent='✅ Imported '+moved+' historical row(s)'
+      +(replaced?' ('+replaced+' already present, updated)':'')
+      +(renamed?', renamed '+renamed+' analyte(s) to match the charts':'')
+      +(sync.created.length?', built chart tabs for '+sync.created.join(', '):'')
+      +' from "'+f.name+'".';
+    addLog('TRACKER','Imported '+moved+' historical rows ('+replaced+' updated, '+renamed+' analytes renamed) from "'
+      +f.name+'" into "'+TRACKER_HANDLE.name+'"',{newTabs:sync.created, helpersRebuilt:sync.rebuilt});
   }catch(e){
-    const m=e&&e.message||String(e);
+    const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Import failed: '+m;
   }
 }
