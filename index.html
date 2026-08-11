@@ -1467,7 +1467,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const have = helperElements(await doc.partText(helper.path));
       const haveLower = new Set(have.map(h => h.toLowerCase()));
       const missing = wanted.filter(w => !haveLower.has(w.toLowerCase()));
-      if (!missing.length) return { status: 'current', sheet: vis.name, added: [] };
+      if (!missing.length) return { status: 'current', sheet: vis.name, helper: helper.name, added: [] };
 
       const all = have.concat(missing);
       doc.setPart(helper.path, helperSheetXml(all, {}));   // values land in sync()
@@ -1482,7 +1482,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         add += anchor(at + k, rid);
       }
       doc.setPart(drawing, dxml.replace('</wsDr>', add + '</wsDr>'));
-      return { status: 'extended', sheet: vis.name, added: missing };
+      return { status: 'extended', sheet: vis.name, helper: helper.name, added: missing };
     }
 
     /* --- no tab yet: build the whole thing --- */
@@ -1511,7 +1511,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const drid = await doc.addRel(sheetRec.path, doc.relTypes.drawing, drawing);
     doc.setPart(sheetRec.path, visibleSheetXml(product, drid, style.title, style.note));
 
-    return { status: 'created', sheet: visName, added: wanted, product: product };
+    return { status: 'created', sheet: visName, helper: helperName, added: wanted, product: product };
   }
 
   /* =====================================================================
@@ -1534,12 +1534,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       return out;
     }
 
-    // tab name -> the SampleType it charts (they differ only if the name had to
-    // be sanitised or shortened to fit Excel's 31-character limit)
-    const productOf = {};
+    // tab name -> {product it charts, helper sheet that feeds it}. Both can
+    // differ from the obvious guess: a name is sanitised and de-duplicated to fit
+    // Excel's rules, so charting "Allure" into a workbook that already has an
+    // "Allure" tab yields the tab "Allure 2" fed by the helper "_Allure".
+    // Guessing '_' + tabName there finds nothing and the charts stay empty.
+    const known = {};
     for (const p of products || []) {
       const r = await ensureProduct(doc, p.name, p.elements);
-      productOf[(r.sheet || p.name).toLowerCase()] = p.name;
+      if (r.sheet) known[r.sheet.toLowerCase()] = { product: p.name, helper: r.helper || null };
       if (r.status === 'created') out.created.push(r.sheet);
       else if (r.status === 'extended') out.extended.push({ sheet: r.sheet, added: r.added });
       else if (r.status === 'skipped') out.skipped.push({ product: p.name, reason: r.reason });
@@ -1547,12 +1550,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
     for (const s of doc.sheets.slice()) {
       if (s.hidden) continue;
-      const helper = doc.sheetNamed('_' + s.name);
+      const hit = known[s.name.toLowerCase()];
+      const helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
       if (!helper) continue;                       // not a product tab of ours
       // the header row is all we need, so don't inflate a whole helper part
       const els = helperElements(await doc.partTextHead(helper.path, 65536));
       if (!els.length) continue;
-      const product = productOf[s.name.toLowerCase()] || s.name;
+      const product = (hit && hit.product) || s.name;
       doc.setPart(helper.path, helperSheetXml(els, pointsFor(rows, columns, product, els)));
       out.rebuilt++;
     }
@@ -1750,7 +1754,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
               <button onclick="menuDownload(printAll);closeMenus()">Print all together</button>
             </div>
           </div>
-          <button onclick="openTracker();closeMenus()" title="Append finalized results to the shared QC trend tracker">Commit to Tracker…</button>
+          <button onclick="openTracker();closeMenus()" title="Commit finalized results, choose the tracker file, or import an older tracker's history">Tracker…</button>
           <div class="menu-sep"></div>
           <button onclick="logout();closeMenus()">Log out</button>
         </div>
@@ -4061,9 +4065,12 @@ async function setTrackerHandle(h,how){
   updateTrackerFileLabel();
 }
 /* ---- the dialog ---- */
+// Opens with or without a loaded report: "Import history…" and choosing the
+// tracker file are setup jobs that have nothing to do with today's samples, and
+// requiring raw data to reach them made a one-time migration impossible.
 function openTracker(){
-  if(!SAMPLES.length){ alert('Load raw data first — there is nothing to commit.'); return; }
-  if(!FINALIZED && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
+  if(SAMPLES.length && !FINALIZED
+     && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
   renderTrackerList(); updateTrackerFileLabel();
   document.getElementById('trkMsg').textContent='';
   document.getElementById('trackerModal').style.display='block';
@@ -4084,6 +4091,16 @@ function renderTrackerList(){
   const blocked=SAMPLES.filter(s=>!trackable(s));
   const all=document.getElementById('trkAll'); all.checked=true;
   const m=document.getElementById('trkMsg');
+  // no report loaded is a legitimate state — you're here to set up or migrate
+  const commit=document.getElementById('trkCommit');
+  if(commit) commit.disabled=!SAMPLES.length;
+  if(!SAMPLES.length){
+    document.getElementById('trkList').innerHTML=
+      '<div style="padding:10px 11px;font-size:12.5px;color:#666">No report loaded — you can still choose the '
+      +'tracker file or import history. Load raw data when you want to commit results.</div>';
+    m.style.color='#666'; m.textContent='';
+    return;
+  }
   if(blocked.length){ m.style.color='#a33'; m.textContent=blockedNotice(blocked); }
 }
 // Name the samples that won't be charted, and say exactly what unblocks them.
@@ -4347,6 +4364,26 @@ async function importTrackerHistory(){
     let headers=st.headers;
     if(!headers){ headers=oldHdr.slice(); doc.setHeaders(headers); }   // adopt the old layout wholesale
     const oldMap=trackerColMap(oldHdr), newMap=trackerColMap(headers);
+    // Canonicalise what is ALREADY here first. The de-duplication key includes
+    // Element and Date, so renaming an incoming "Phosphorus (P2O5)" to
+    // "Phosphorus (P)" changes its key and it no longer matches the row it is
+    // meant to replace — importing a tracker into itself would then append a
+    // renamed duplicate of every row. Converge both sides on the same spelling.
+    let fixedHere=0;
+    if(newMap.Element!==undefined || newMap.Date!==undefined){
+      doc.dataRows().forEach((row,i)=>{
+        const cells={};
+        if(newMap.Element!==undefined){
+          const v=row[newMap.Element], c=trkCanonEl(v);
+          if(c!==String(v==null?'':v).trim()) cells[newMap.Element]=c;
+        }
+        if(newMap.Date!==undefined){
+          const v=row[newMap.Date], d=trkDateIso(v);
+          if(d!==String(v==null?'':v).trim()) cells[newMap.Date]=d;
+        }
+        if(Object.keys(cells).length){ doc.updateRow(i,cells); fixedHere++; }
+      });
+    }
     const seen=trackerRowIndex(doc,newMap);
     let moved=0, replaced=0, renamed=0;
     const products={};
@@ -4379,7 +4416,7 @@ async function importTrackerHistory(){
     msg.style.color='#2e7d32';
     msg.textContent='✅ Imported '+moved+' historical row(s)'
       +(replaced?' ('+replaced+' already present, updated)':'')
-      +(renamed?', renamed '+renamed+' analyte(s) to match the charts':'')
+      +(renamed+fixedHere?', renamed '+(renamed+fixedHere)+' analyte(s) to match the charts':'')
       +(sync.created.length?', built chart tabs for '+sync.created.join(', '):'')
       +' from "'+f.name+'".';
     addLog('TRACKER','Imported '+moved+' historical rows ('+replaced+' updated, '+renamed+' analytes renamed) from "'
