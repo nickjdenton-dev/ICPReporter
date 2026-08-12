@@ -1169,7 +1169,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   // How far down the helper columns every chart series reads. Nothing is stored
   // out there — it is just the ceiling on points per analyte, per product.
   const ROWS = 5000;
-  const BLOCK = 5;            // date, measured, claim, warn, limit
+  // per analyte: date, measured, claim, warn low, warn high, limit low, limit high
+  const BLOCK = 7;
   // Warning and limit lines, as a percentage BELOW the label claim — these are
   // guaranteed minimums, so warn 5 puts the orange line at claim x 0.95. The
   // caller passes the lab's own numbers; these are only the fallback.
@@ -1241,10 +1242,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     });
     return depth;
   }
+  // The bands BRACKET the claim: a 5% warning on an 11.2 claim draws at 10.64
+  // and 11.76. Being over the guarantee is still off-target and worth seeing.
   function bandsOf(b) {
     const clamp = (v, d) => { const n = parseFloat(v); return isFinite(n) && n >= 0 && n < 100 ? n : d; };
-    return { warn: 1 - clamp(b && b.warnPct, BANDS_DEFAULT.warnPct) / 100,
-             limit: 1 - clamp(b && b.limitPct, BANDS_DEFAULT.limitPct) / 100 };
+    const w = clamp(b && b.warnPct, BANDS_DEFAULT.warnPct) / 100;
+    const l = clamp(b && b.limitPct, BANDS_DEFAULT.limitPct) / 100;
+    return { warnLo: 1 - w, warnHi: 1 + w, limitLo: 1 - l, limitHi: 1 + l };
   }
   // points: element (lowercased) -> [{date, measured, claim}], already filtered
   function helperSheetXml(elements, points, bands) {
@@ -1262,7 +1266,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     out.push('<row r="1">');
     elements.forEach((el, b) => {
       const base = b * BLOCK;
-      [el + ' date', el + ' measured', 'claim', 'warn', 'limit'].forEach((h, j) => {
+      [el + ' date', el + ' measured', 'claim',
+       'warn low', 'warn high', 'limit low', 'limit high'].forEach((h, j) => {
         out.push('<c r="' + colName(base + j + 1) + '1" t="inlineStr"><is><t>' + esc(h) + '</t></is></c>');
       });
     });
@@ -1275,11 +1280,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         if (!p) return;
         const base = b * BLOCK;
         const claim = p.claim;
+        const at = k => claim === null ? '' : round4(claim * k);
         row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
-          + cell(colName(base + 4) + r, claim === null ? '' : round4(claim * band.warn))
-          + cell(colName(base + 5) + r, claim === null ? '' : round4(claim * band.limit));
+          + cell(colName(base + 4) + r, at(band.warnLo))
+          + cell(colName(base + 5) + r, at(band.warnHi))
+          + cell(colName(base + 6) + r, at(band.limitLo))
+          + cell(colName(base + 7) + r, at(band.limitHi));
       });
       if (row) out.push('<row r="' + r + '">' + row + '</row>');
     }
@@ -1317,24 +1325,37 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const re = /<t\b[^>]*\/>|<t\b[^>]*>([\s\S]*?)<\/t>/g;
     let m;
     while ((m = re.exec(row1))) texts.push(m[1] === undefined ? '' : m[1]);
+    // Find the blocks by their "<analyte> date" header rather than by counting
+    // a fixed stride: helpers written before the bands became two-sided have 5
+    // columns per analyte, not 7, and a stride would read them as gibberish.
+    // They are rewritten at the new width on the next sync.
     const out = [];
-    for (let k = 0; k < texts.length; k += BLOCK) {
-      const h = texts[k].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-      out.push(h.replace(/\s+date$/i, ''));
-    }
+    texts.forEach(t => {
+      const h = t.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      if (/\sdate$/i.test(h)) out.push(h.replace(/\s+date$/i, ''));
+    });
     return out;
   }
 
   /* ---------------- one chart ---------------- */
-  function series(idx, helper, catCol, valCol, color, dashed, lastRow) {
+  /* Only the measured series carries markers. The reference lines are limits,
+     not readings, so dotting them implies measurements that don't exist — and a
+     marker with no explicit fill picks up Excel's theme colour for that series
+     index, which is why the green claim line was sprouting orange dots. */
+  function series(idx, helper, catCol, valCol, color, dashed, lastRow, marker) {
     const h = qSheet(helper);
     const span = col => '$' + col + '$2:$' + col + '$' + lastRow;
     return '<ser><idx val="' + idx + '"/><order val="' + idx + '"/>'
       + '<tx><strRef><f>' + h + '!' + valCol + '1</f></strRef></tx>'
-      + '<spPr><a:ln xmlns:a="' + A_NS + '" w="20000"><a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill>'
+      + '<spPr><a:ln xmlns:a="' + A_NS + '" w="' + (dashed ? 17000 : 22000) + '">'
+      + '<a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill>'
       + '<a:prstDash val="' + (dashed ? 'dash' : 'solid') + '"/></a:ln></spPr>'
-      + '<marker><symbol val="' + (dashed ? 'none' : 'circle') + '"/>' + (dashed ? '' : '<size val="6"/>')
-      + '<spPr><a:ln xmlns:a="' + A_NS + '"><a:prstDash val="solid"/></a:ln></spPr></marker>'
+      + (marker
+          ? '<marker><symbol val="circle"/><size val="6"/><spPr>'
+            + '<a:solidFill xmlns:a="' + A_NS + '"><a:srgbClr val="' + color + '"/></a:solidFill>'
+            + '<a:ln xmlns:a="' + A_NS + '"><a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill></a:ln>'
+            + '</spPr></marker>'
+          : '<marker><symbol val="none"/></marker>')
       + '<cat><numRef><f>' + h + '!' + span(catCol) + '</f></numRef></cat>'
       + '<val><numRef><f>' + h + '!' + span(valCol) + '</f></numRef></val>'
       + '<smooth val="0"/></ser>';
@@ -1356,16 +1377,20 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   function chartXml(product, element, helper, block, lastRow) {
     const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
-    const cDate = colName(base + 1), cMeas = colName(base + 2);
-    const cClaim = colName(base + 3), cWarn = colName(base + 4), cLimit = colName(base + 5);
-    const s = (i, col, color, dashed) => series(i, helper, cDate, col, color, dashed, last);
+    const cDate = colName(base + 1), cMeas = colName(base + 2), cClaim = colName(base + 3);
+    const cWarnLo = colName(base + 4), cWarnHi = colName(base + 5);
+    const cLimLo = colName(base + 6), cLimHi = colName(base + 7);
+    const s = (i, col, color, dashed, marker) => series(i, helper, cDate, col, color, dashed, last, marker);
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
       + titleEl(product + ' - ' + element)
+      // reference lines first so the measured trend draws on top of them
       + '<plotArea><lineChart><grouping val="standard"/>'
-      + s(0, cMeas, COLOR.measured, false)
-      + s(1, cClaim, COLOR.claim, false)
-      + s(2, cWarn, COLOR.warn, true)
-      + s(3, cLimit, COLOR.limit, true)
+      + s(0, cLimLo, COLOR.limit, true, false)
+      + s(1, cLimHi, COLOR.limit, true, false)
+      + s(2, cWarnLo, COLOR.warn, true, false)
+      + s(3, cWarnHi, COLOR.warn, true, false)
+      + s(4, cClaim, COLOR.claim, false, false)
+      + s(5, cMeas, COLOR.measured, false, true)
       + '<axId val="10"/><axId val="100"/></lineChart>'
       // The category axis must sit at the BOTTOM, and both axes need delete="0"
       // plus a tick-label position — without them Excel draws the plot with no
@@ -1456,6 +1481,16 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   /* ---------------- the chart parts a visible tab owns, in anchor order ----
      Anchors sit in the drawing in the order the charts were created, i.e. one
      per analyte block, so index k here is block k on the helper. ---- */
+  // the r:id of each chart, in the order the drawing anchors them
+  async function chartRelIdsOf(doc, drawingPath) {
+    const dxml = await doc.partText(drawingPath);
+    if (!dxml) return [];
+    const out = [];
+    const re = /<c:chart\b[^>]*r:id="([^"]+)"/g;
+    let m;
+    while ((m = re.exec(dxml))) out.push(m[1]);
+    return out;
+  }
   async function chartPathsOf(doc, drawingPath) {
     const dxml = await doc.partText(drawingPath);
     const rels = await doc.partText(relsPathOf(drawingPath));
@@ -1609,8 +1644,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const els = helperElements(await doc.partTextHead(helper.path, 65536));
       if (!els.length) continue;
       const product = (hit && hit.product) || s.name;
-      const points = pointsFor(rows, columns, product, els);
-      doc.setPart(helper.path, helperSheetXml(els, points, bands));
+      const all = pointsFor(rows, columns, product, els);
+      /* Drop analytes this product has no readings for. A sample type declares
+         analytes it does not always measure, and each one used to get its own
+         empty chart — tabs ended up buried under plots of nothing. Keep the full
+         set only when the product has no data at all, so a tab never blanks out
+         entirely; an analyte that starts being measured comes back on the next
+         commit via ensureProduct(). */
+      const live = els.filter(e => (all[e.toLowerCase()] || []).length);
+      const keep = live.length ? live : els;
+      const points = {};
+      keep.forEach(e => { points[e.toLowerCase()] = all[e.toLowerCase()] || []; });
+      doc.setPart(helper.path, helperSheetXml(keep, points, bands));
 
       /* Rebuild every chart on the tab against the rows that now hold data.
          The range has to follow the data: a fixed $2:$5000 against 16 points
@@ -1622,12 +1667,22 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const drawing = await drawingPathOf(doc, s.path);
       if (drawing) {
         const charts = await chartPathsOf(doc, drawing);
-        for (let k = 0; k < els.length && k < charts.length; k++) {
+        const ids = await chartRelIdsOf(doc, drawing);
+        let anchors = '';
+        for (let k = 0; k < keep.length && k < charts.length; k++) {
           if (!charts[k]) continue;
-          const n = (points[els[k].toLowerCase()] || []).length;
-          doc.setPart(charts[k], chartXml(product, els[k], helper.name, k, n + 1));
+          const n = (points[keep[k].toLowerCase()] || []).length;
+          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1));
+          anchors += anchor(k, ids[k]);
           out.retargeted++;
         }
+        /* Rewrite the drawing with an anchor per surviving chart. Charts that
+           dropped out keep their part and their relationship — only the anchor
+           goes — so nothing is deleted from the package and the chart returns
+           the moment the analyte is measured again. */
+        if (anchors) doc.setPart(drawing,
+          '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">'
+          + anchors + '</wsDr>');
       }
       out.rebuilt++;
     }
@@ -4380,6 +4435,11 @@ function chartableElements(samples){
   const out=[], seen={};
   samples.forEach(s=>trackerRowsFor(s).forEach(r=>{
     if(r.Table!=='Macro' && r.Table!=='Micro') return;
+    // A sample type defines analytes it doesn't always measure — those come
+    // through as 'N/A' or 'Non-Detect'. Charting them produced a wall of empty
+    // plots on every tab. Only an actual number is worth a chart; if the analyte
+    // is measured later, the tab gains the chart then.
+    if(typeof r.Measured!=='number') return;
     const el=String(r.Element||'').trim(); if(!el) return;
     const k=el.toLowerCase(); if(seen[k]) return;
     seen[k]=1; out.push(el);
