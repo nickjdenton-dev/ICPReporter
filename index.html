@@ -1229,13 +1229,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     if (typeof v === 'number') return '<c r="' + ref + '"><v>' + v + '</v></c>';
     return '<c r="' + ref + '" t="inlineStr"><is><t>' + esc(v) + '</t></is></c>';
   }
-  // points: element (lowercased) -> [{date, measured, claim}], already filtered
-  function helperSheetXml(elements, points) {
+  // the last row a packed helper will occupy for these points
+  function helperDepth(elements, points) {
     let depth = 1;
     elements.forEach(el => {
       const p = points[el.toLowerCase()];
       if (p && p.length + 1 > depth) depth = p.length + 1;
     });
+    return depth;
+  }
+  // points: element (lowercased) -> [{date, measured, claim}], already filtered
+  function helperSheetXml(elements, points) {
+    const depth = helperDepth(elements, points);
     const lastCol = colName(Math.max(1, elements.length * BLOCK));
     const out = [];
     out.push('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
@@ -1312,9 +1317,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   }
 
   /* ---------------- one chart ---------------- */
-  function series(idx, helper, catCol, valCol, color, dashed) {
+  function series(idx, helper, catCol, valCol, color, dashed, lastRow) {
     const h = qSheet(helper);
-    const span = col => '$' + col + '$2:$' + col + '$' + ROWS;
+    const span = col => '$' + col + '$2:$' + col + '$' + lastRow;
     return '<ser><idx val="' + idx + '"/><order val="' + idx + '"/>'
       + '<tx><strRef><f>' + h + '!' + valCol + '1</f></strRef></tx>'
       + '<spPr><a:ln xmlns:a="' + A_NS + '" w="20000"><a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill>'
@@ -1326,31 +1331,48 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       + '<smooth val="0"/></ser>';
   }
 
-  function axisTitle(text) {
+  // overlay=0 makes the title reserve its own strip instead of sitting on the plot
+  function titleEl(text) {
     return '<title><tx><rich><a:bodyPr xmlns:a="' + A_NS + '"/><a:p xmlns:a="' + A_NS + '">'
-      + '<a:pPr><a:defRPr/></a:pPr><a:r><a:t>' + esc(text) + '</a:t></a:r></a:p></rich></tx></title>';
+      + '<a:pPr><a:defRPr/></a:pPr><a:r><a:t>' + esc(text) + '</a:t></a:r></a:p></rich></tx>'
+      + '<overlay val="0"/></title>';
   }
 
-  function chartXml(product, element, helper, block) {
+  /* The series ranges must stop at the last row that actually holds a point.
+     They used to run to row 5000 because the helper was row-parallel with
+     All Data and points could land anywhere in it. Now the helper is packed from
+     row 2 down, and a range of 4999 categories against 16 points makes Excel
+     spread the categories over the full width — the data ends up crushed into
+     the left edge of the plot with no axis labels. */
+  function chartXml(product, element, helper, block, lastRow) {
+    const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
     const cDate = colName(base + 1), cMeas = colName(base + 2);
     const cClaim = colName(base + 3), cWarn = colName(base + 4), cLimit = colName(base + 5);
-    const s = (i, col, color, dashed) => series(i, helper, cDate, col, color, dashed);
+    const s = (i, col, color, dashed) => series(i, helper, cDate, col, color, dashed, last);
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
-      + axisTitle(product + ' - ' + element)
+      + titleEl(product + ' - ' + element)
       + '<plotArea><lineChart><grouping val="standard"/>'
       + s(0, cMeas, COLOR.measured, false)
       + s(1, cClaim, COLOR.claim, false)
       + s(2, cWarn, COLOR.warn, true)
       + s(3, cLimit, COLOR.limit, true)
       + '<axId val="10"/><axId val="100"/></lineChart>'
-      + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling><axPos val="l"/>'
-      + axisTitle('Date')
-      + '<majorTickMark val="none"/><minorTickMark val="none"/><crossAx val="100"/><lblOffset val="100"/></catAx>'
-      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling><axPos val="l"/><majorGridlines/>'
-      + axisTitle('%')
-      + '<majorTickMark val="none"/><minorTickMark val="none"/><crossAx val="10"/></valAx></plotArea>'
-      + '<legend><legendPos val="r"/></legend><plotVisOnly val="1"/><dispBlanksAs val="gap"/></chart></chartSpace>';
+      // The category axis must sit at the BOTTOM, and both axes need delete="0"
+      // plus a tick-label position — without them Excel draws the plot with no
+      // dates along the bottom and no scale up the side.
+      + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling>'
+      + '<delete val="0"/><axPos val="b"/>'
+      + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
+      + '<crossAx val="100"/><crosses val="autoZero"/><auto val="1"/><lblAlgn val="ctr"/>'
+      + '<lblOffset val="100"/><noMultiLvlLbl val="0"/></catAx>'
+      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling>'
+      + '<delete val="0"/><axPos val="l"/><majorGridlines/>'
+      + '<numFmt formatCode="General" sourceLinked="1"/>'
+      + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
+      + '<crossAx val="10"/><crosses val="autoZero"/><crossBetween val="between"/></valAx></plotArea>'
+      + '<legend><legendPos val="r"/><overlay val="0"/></legend>'
+      + '<plotVisOnly val="1"/><dispBlanksAs val="gap"/></chart></chartSpace>';
   }
 
   // charts sit two to a row: columns A and K, every 16 rows, under the title
@@ -1421,6 +1443,27 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     }
     return (doc.__qcStyles = { title: String(title), note: String(note) });
   }
+
+  /* ---------------- the chart parts a visible tab owns, in anchor order ----
+     Anchors sit in the drawing in the order the charts were created, i.e. one
+     per analyte block, so index k here is block k on the helper. ---- */
+  async function chartPathsOf(doc, drawingPath) {
+    const dxml = await doc.partText(drawingPath);
+    const rels = await doc.partText(relsPathOf(drawingPath));
+    if (!dxml || !rels) return [];
+    const target = {};
+    let m;
+    const rr = /<Relationship\b[^>]*?\/?>/g;
+    while ((m = rr.exec(rels))) {
+      const id = /Id="([^"]+)"/.exec(m[0]), tg = /Target="([^"]+)"/.exec(m[0]);
+      if (id && tg) target[id[1]] = tg[1].charAt(0) === '/' ? tg[1].slice(1) : 'xl/' + tg[1].replace(/^\.\//, '');
+    }
+    const out = [];
+    const ar = /<c:chart\b[^>]*r:id="([^"]+)"/g;
+    while ((m = ar.exec(dxml))) out.push(target[m[1]] || null);
+    return out;
+  }
+  function relsPathOf(p) { const i = p.lastIndexOf('/'); return p.slice(0, i) + '/_rels' + p.slice(i) + '.rels'; }
 
   /* ---------------- the drawing a visible tab points at ---------------- */
   async function drawingPathOf(doc, sheetPath) {
@@ -1526,7 +1569,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      strictly alone.
      ===================================================================== */
   async function sync(doc, products, columns, rows) {
-    const out = { created: [], extended: [], skipped: [], rebuilt: 0 };
+    const out = { created: [], extended: [], skipped: [], rebuilt: 0, retargeted: 0 };
     const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
     const missingCol = need.find(k => columns[k] === undefined);
     if (missingCol) {
@@ -1557,7 +1600,26 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const els = helperElements(await doc.partTextHead(helper.path, 65536));
       if (!els.length) continue;
       const product = (hit && hit.product) || s.name;
-      doc.setPart(helper.path, helperSheetXml(els, pointsFor(rows, columns, product, els)));
+      const points = pointsFor(rows, columns, product, els);
+      doc.setPart(helper.path, helperSheetXml(els, points));
+
+      /* Rebuild every chart on the tab against the rows that now hold data.
+         The range has to follow the data: a fixed $2:$5000 against 16 points
+         makes Excel spread 4999 categories over the full width and crush the
+         plot into the left edge. Each analyte gets its OWN row count, so a
+         sparse analyte isn't padded out to the length of a busy one.
+         Regenerating (rather than patching the range) also carries fixes to the
+         chart itself into workbooks written by an earlier build. */
+      const drawing = await drawingPathOf(doc, s.path);
+      if (drawing) {
+        const charts = await chartPathsOf(doc, drawing);
+        for (let k = 0; k < els.length && k < charts.length; k++) {
+          if (!charts[k]) continue;
+          const n = (points[els[k].toLowerCase()] || []).length;
+          doc.setPart(charts[k], chartXml(product, els[k], helper.name, k, n + 1));
+          out.retargeted++;
+        }
+      }
       out.rebuilt++;
     }
     return out;
