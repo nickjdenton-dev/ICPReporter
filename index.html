@@ -1155,9 +1155,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
    The helper columns per analyte block are:
      date  measured  claim  warn  limit
-   where warn = claim x 0.93 and limit = claim x 0.90 — a floor, because these
-   are guaranteed minimums. An analyte with no label claim still gets a chart;
-   its claim/warn/limit columns just stay blank and only the measured line draws.
+   warn and limit sit a configurable percentage BELOW the claim (5% and 10% by
+   default) — a floor, because these are guaranteed minimums. An analyte with no
+   label claim still gets a chart; its claim/warn/limit columns just stay blank
+   and only the measured line draws.
 
    sync() is the entry point: it gives every product a tab and then refills every
    helper it owns from the tracker rows.
@@ -1169,8 +1170,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   // out there — it is just the ceiling on points per analyte, per product.
   const ROWS = 5000;
   const BLOCK = 5;            // date, measured, claim, warn, limit
-  const WARN = 0.9300;        // orange line, as a fraction of the label claim
-  const LIMIT = 0.9000;       // red line
+  // Warning and limit lines, as a percentage BELOW the label claim — these are
+  // guaranteed minimums, so warn 5 puts the orange line at claim x 0.95. The
+  // caller passes the lab's own numbers; these are only the fallback.
+  const BANDS_DEFAULT = { warnPct: 5, limitPct: 10 };
   const COLOR = { measured: '0F4C81', claim: '2E9B48', warn: 'E08A1E', limit: 'C0392B' };
   const NOTE = 'Charts update automatically as ICP Reporter commits data.';
   const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -1201,10 +1204,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      tracker at ~4999 rows, cost ~19 MB per product and made the workbook take
      35 s to open — 3.4 M formulas to plot a few hundred points.
 
-     Instead the app computes the values and writes only the rows that have
-     data, packed from row 2 down. The charts still read the same columns over
-     the same $2:$5000 range, so no chart has to change — but the 5000 now means
-     5000 points *per analyte per product* rather than 5000 rows in total.
+     Instead the app computes the values and writes only the rows that have data,
+     packed from row 2 down, and each chart's range is rebuilt to match its own
+     analyte's row count. The old cap of ~4999 rows in All Data becomes ~4999
+     points per analyte per product, which in practice is no cap at all.
 
      Trade-off: these are values, not formulas, so a hand edit to All Data shows
      up the next time the app writes (any commit, or Rebuild charts). */
@@ -1238,8 +1241,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     });
     return depth;
   }
+  function bandsOf(b) {
+    const clamp = (v, d) => { const n = parseFloat(v); return isFinite(n) && n >= 0 && n < 100 ? n : d; };
+    return { warn: 1 - clamp(b && b.warnPct, BANDS_DEFAULT.warnPct) / 100,
+             limit: 1 - clamp(b && b.limitPct, BANDS_DEFAULT.limitPct) / 100 };
+  }
   // points: element (lowercased) -> [{date, measured, claim}], already filtered
-  function helperSheetXml(elements, points) {
+  function helperSheetXml(elements, points, bands) {
+    const band = bandsOf(bands);
     const depth = helperDepth(elements, points);
     const lastCol = colName(Math.max(1, elements.length * BLOCK));
     const out = [];
@@ -1269,8 +1278,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
-          + cell(colName(base + 4) + r, claim === null ? '' : round4(claim * WARN))
-          + cell(colName(base + 5) + r, claim === null ? '' : round4(claim * LIMIT));
+          + cell(colName(base + 4) + r, claim === null ? '' : round4(claim * band.warn))
+          + cell(colName(base + 5) + r, claim === null ? '' : round4(claim * band.limit));
       });
       if (row) out.push('<row r="' + r + '">' + row + '</row>');
     }
@@ -1513,7 +1522,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (!missing.length) return { status: 'current', sheet: vis.name, helper: helper.name, added: [] };
 
       const all = have.concat(missing);
-      doc.setPart(helper.path, helperSheetXml(all, {}));   // values land in sync()
+      doc.setPart(helper.path, helperSheetXml(all, {}, null));   // values land in sync()
 
       let dxml = await doc.partText(drawing);
       const at = (dxml.match(/<oneCellAnchor>/g) || []).length;
@@ -1533,7 +1542,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const visName = safeSheetName(product, taken);
     const helperName = safeSheetName('_' + product, taken.concat([visName]));
 
-    doc.addSheet(helperName, helperSheetXml(wanted, {}), true);   // values land in sync()
+    doc.addSheet(helperName, helperSheetXml(wanted, {}, null), true);   // values land in sync()
 
     const drawing = doc.nextPart('xl/drawings', 'drawing', 'xml');
     doc.setPart(drawing, '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"></wsDr>',
@@ -1568,7 +1577,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      older build. Tabs with no matching helper are somebody else's and are left
      strictly alone.
      ===================================================================== */
-  async function sync(doc, products, columns, rows) {
+  async function sync(doc, products, columns, rows, bands) {
     const out = { created: [], extended: [], skipped: [], rebuilt: 0, retargeted: 0 };
     const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
     const missingCol = need.find(k => columns[k] === undefined);
@@ -1601,7 +1610,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (!els.length) continue;
       const product = (hit && hit.product) || s.name;
       const points = pointsFor(rows, columns, product, els);
-      doc.setPart(helper.path, helperSheetXml(els, points));
+      doc.setPart(helper.path, helperSheetXml(els, points, bands));
 
       /* Rebuild every chart on the tab against the rows that now hold data.
          The range has to follow the data: a fixed $2:$5000 against 16 points
@@ -1947,6 +1956,24 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       Rows are added to the <b>All Data</b> sheet in place, so a workbook's charts and formulas are left untouched and fill in on their own.
       Re-committing the same product, batch, date and element corrects that row instead of duplicating it, and simultaneous commits are merged automatically.
       The workbook must be closed in Excel while you commit.</div>
+    </div>
+    <div style="margin-top:14px">
+      <div style="font-weight:bold;color:#0f4c81;font-size:13px;margin-bottom:4px">Control limits on the trend charts</div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12.5px">
+        <label style="display:flex;align-items:center;gap:5px">
+          <span style="color:#E08A1E;font-weight:bold">Warning</span> at
+          <input id="trkWarnPct" type="number" min="0" max="99" step="0.1" style="width:62px;padding:4px">
+          % below claim
+        </label>
+        <label style="display:flex;align-items:center;gap:5px">
+          <span style="color:#C0392B;font-weight:bold">Limit</span> at
+          <input id="trkLimitPct" type="number" min="0" max="99" step="0.1" style="width:62px;padding:4px">
+          % below claim
+        </label>
+        <button class="act sec" onclick="applyTrendBands()" title="Save these limits and redraw every chart in the tracker workbook">Save &amp; redraw charts</button>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:4px">These are guaranteed minimums, so the lines sit below the
+      label claim — a 5% warning on an 11.2% claim draws at 10.64. Saving redraws every chart in the workbook; no data is changed.</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
       <button id="trkCommit" class="act" onclick="commitToTracker()">Commit selected to tracker</button>
@@ -2583,7 +2610,7 @@ function removeBuiltinAdmin(){
 const BACKUP_KEYS=['icpCatalogEdits','icpCustomSpecs','icpTypeMetals','icpCustomElements',
   'icpHiddenBuiltins','icpTemplate','icpUsers','icpActivityLog','icpLogRetentionDays',
   'icpTermsAccepted','icpLicense','icpSeededV1','icpMacroFixV1','icpTypeMetalsSeedV1','icpLogoDefaultV1',
-  'icpFailsafeDisabled'];
+  'icpFailsafeDisabled','icpTrendBands'];
 function backupJSON(){
   const data={app:'ICP Reporter', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
   BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data.store[k]=v; });
@@ -4133,9 +4160,62 @@ async function setTrackerHandle(h,how){
 function openTracker(){
   if(SAMPLES.length && !FINALIZED
      && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
-  renderTrackerList(); updateTrackerFileLabel();
+  renderTrackerList(); updateTrackerFileLabel(); renderTrendBands();
   document.getElementById('trkMsg').textContent='';
   document.getElementById('trackerModal').style.display='block';
+}
+function renderTrendBands(){
+  const b=loadBands();
+  const w=document.getElementById('trkWarnPct'), l=document.getElementById('trkLimitPct');
+  if(w) w.value=b.warnPct;
+  if(l) l.value=b.limitPct;
+}
+/* Save the bands, then redraw. The helper sheets hold computed warn/limit
+   values rather than formulas, so a new percentage only reaches the charts when
+   something rewrites them — this is that something, and it needs no new data. */
+async function applyTrendBands(){
+  const msg=document.getElementById('trkMsg');
+  const warnPct=parseFloat(document.getElementById('trkWarnPct').value);
+  const limitPct=parseFloat(document.getElementById('trkLimitPct').value);
+  const ok=v=>isFinite(v)&&v>=0&&v<100;
+  if(!ok(warnPct)||!ok(limitPct)){
+    msg.style.color='#a33'; msg.textContent='Warning and limit must each be between 0 and 99 percent.'; return; }
+  if(warnPct>limitPct && !confirm('The warning ('+warnPct+'%) is further from the claim than the limit ('+limitPct
+      +'%), so the orange line will sit below the red one.\n\nSave anyway?')) return;
+  saveBands(warnPct,limitPct);
+  addLog('TRACKER','Trend chart bands set to warn '+warnPct+'% / limit '+limitPct+'% below claim');
+  if(!TRACKER_HANDLE){ msg.style.color='#2e7d32';
+    msg.textContent='✅ Saved. They will be applied when you choose a tracker file and commit.'; return; }
+  await rebuildTrackerCharts(msg);
+}
+// Redraw every chart from what is already in All Data — also the repair path
+// for a workbook edited by hand or written by an older build.
+async function rebuildTrackerCharts(msg){
+  if(!XlsxPatch.supported()){ msg.style.color='#a33';
+    msg.textContent='Redrawing charts needs Chrome or Edge 103 or newer.'; return; }
+  msg.style.color='#0f4c81'; msg.textContent='Redrawing charts…';
+  try{
+    const perm={mode:'readwrite'};
+    if((await TRACKER_HANDLE.queryPermission(perm))!=='granted' && (await TRACKER_HANDLE.requestPermission(perm))!=='granted')
+      throw new Error('Write permission to the tracker file was denied.');
+    if(!(await TRACKER_HANDLE.getFile()).size) throw new Error('the tracker file is empty — commit or import something first.');
+    const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
+      ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+    if(!st.headers) throw new Error('the tracker sheet has no header row yet.');
+    const sync=await QcCharts.sync(st.doc, [], trackerColMap(st.headers), st.doc.dataRows(), loadBands());
+    await writeTrackerWorkbook(TRACKER_HANDLE, st.doc,
+      ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+    const b=loadBands();
+    msg.style.color='#2e7d32';
+    msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s) — warning '
+      +b.warnPct+'%, limit '+b.limitPct+'% below claim.';
+    addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"',
+      {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct});
+  }catch(e){
+    const m=trackerErrorText(e);
+    msg.style.color='#a33'; msg.textContent='Redraw failed: '+m;
+    addLog('ERROR','Chart redraw failed: '+m);
+  }
 }
 function closeTracker(){ document.getElementById('trackerModal').style.display='none'; }
 // A sample can only be tracked if its type is a SAVED sample type — the tracker
@@ -4264,6 +4344,26 @@ async function createTrackerWorkbook(handle, headers){
    One analyte of one batch of one product on one day is a single QC point. If
    that gets committed twice (a correction, a re-import) we overwrite the row we
    already wrote instead of adding a second point to the chart. ---- */
+/* ---- trend-chart warning and limit bands ----
+   Both are a percentage BELOW the label claim, because these are guaranteed
+   minimums: warn 5% means the orange line sits at claim x 0.95. They are drawn
+   from these numbers every time the helpers are rebuilt, so changing them and
+   rebuilding redraws every chart in the workbook — no data is touched. */
+const BANDS_KEY='icpTrendBands';
+const BANDS_DEFAULT={warnPct:5, limitPct:10};
+function loadBands(){
+  let b={};
+  try{ b=JSON.parse(localStorage.getItem(BANDS_KEY))||{}; }catch(e){ b={}; }
+  const clamp=(v,d)=>{ const n=parseFloat(v); return isFinite(n)&&n>=0&&n<100 ? n : d; };
+  return { warnPct: clamp(b.warnPct, BANDS_DEFAULT.warnPct),
+           limitPct: clamp(b.limitPct, BANDS_DEFAULT.limitPct) };
+}
+function saveBands(warnPct,limitPct){
+  const b={warnPct:warnPct, limitPct:limitPct};
+  localStorage.setItem(BANDS_KEY, JSON.stringify(b));
+  scheduleAutoBackup();
+  return b;
+}
 const TRK_KEY=['SampleType','Batch','Date','Element'];
 const TRK_SEP='\u0001';               // cannot occur in a cell, so parts can never run together
 const trkKeyPart=v=>String(v==null?'':v).trim().toLowerCase();
@@ -4360,7 +4460,7 @@ async function commitToTracker(){
       picked.forEach(s=>{ const p=trkType(s.type||s.label); (byProduct[p]=byProduct[p]||[]).push(s); });
       const sync=await QcCharts.sync(doc,
         Object.keys(byProduct).map(p=>({name:p, elements:chartableElements(byProduct[p])})),
-        colFor, doc.dataRows());
+        colFor, doc.dataRows(), loadBands());
       charted=sync.created;
       extended=sync.extended.map(e=>e.sheet+' (+'+e.added.join(', ')+')');
       sync.created.forEach(s=>addLog('TRACKER','Generated a chart tab for "'+s+'"'));
@@ -4472,7 +4572,7 @@ async function importTrackerHistory(){
     msg.textContent='Building charts…';
     const sync=await QcCharts.sync(doc,
       Object.keys(products).map(p=>({name:p, elements:Object.keys(products[p])})),
-      newMap, doc.dataRows());
+      newMap, doc.dataRows(), loadBands());
     await writeTrackerWorkbook(TRACKER_HANDLE, doc,
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     msg.style.color='#2e7d32';
