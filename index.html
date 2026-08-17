@@ -2214,7 +2214,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.7';   // bump on each release
+const APP_VERSION='v5.8';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -2875,7 +2875,7 @@ function _saveMaster(){
   scheduleAutoBackup();
   addLog('TEMPLATE','Saved master template'+(_pendingLogo?' (logo changed)':''), TEMPLATE);
   _templateBackup=null; _pendingLogo=null;
-  if(typeof SAMPLES!=='undefined' && SAMPLES.length) render();
+  if(typeof SAMPLES!=='undefined' && SAMPLES.length){ clearReportBodies(); render({preserveEdits:false}); }
   document.getElementById('masterModal').style.display='none';
 }
 
@@ -3516,6 +3516,7 @@ function _applyLock(btn, willEdit){
   btn.innerHTML = willEdit?ICO_UNLOCK:ICO_LOCK;
   btn.style.opacity = willEdit?'0.8':'0.45';
   btn.title = willEdit?'Editing unlocked — click to lock':'Locked — click to unlock editing';
+  if(!willEdit) captureReportBodies();   // persist manual edits when locking
   addLog('REPORT', willEdit?'Report unlocked for editing':'Report locked — changes saved');
 }
 
@@ -3591,21 +3592,24 @@ function reportHTML(s,idx){
     </table>
 
     ${st.macro===false?'':`
+    <div data-rpt-table="macro">
     <div style="${S.sec}">${te('secMacro')}</div>
     <table style="${S.table}">
       <tr><th width="40%" style="${S.th}">${te('colAnalyte')}</th><th width="22%" style="${S.th}">${te('colMeasured')}</th><th width="20%" style="${S.th}">${te('colClaim')}</th><th width="18%" style="${S.th}">${te('colWl')}</th></tr>
       ${macroRows}
     </table>
-    ${footnote}`}
+    ${footnote}</div>`}
 
     ${st.micro===false?'':`
+    <div data-rpt-table="micro">
     <div style="${S.sec}">${te('secMicro')}</div>
     <table style="${S.table}">
       <tr><th width="34%" style="${S.th}">${te('colElement')}</th><th width="22%" style="${S.th}">${te('colMeasured')}</th><th width="22%" style="${S.th}">${te('colClaim')}</th><th width="22%" style="${S.th}">${te('colWl')}</th></tr>
       ${addRows}
-    </table>`}
+    </table></div>`}
 
     ${st.heavy===false?'':`
+    <div data-rpt-table="heavy">
     <div style="${S.pb}"></div>
     <div style="${S.sec}">${te('secHeavy')}</div>
     <div style="font-size:11px;font-style:italic;color:#666;margin-bottom:6px">${te('heavyNote')}</div>
@@ -3613,11 +3617,12 @@ function reportHTML(s,idx){
       <tr><th width="32%" style="${S.th}">${te('colMetal')}</th><th width="20%" style="${S.th}">${te('colLimit')}</th>
           <th width="30%" style="${S.th}">${te('colDetected')}</th><th width="18%" style="${S.th}">${te('colWl')}</th></tr>
       ${metalRows}
-    </table>`}
+    </table></div>`}
 
     ${st.raw===false?'':`
+    <div data-rpt-table="raw">
     <div style="${S.sec}">${te('secRaw')}</div>
-    <div style="${S.notes}">${rawDataTitle()}</div>`}
+    <div style="${S.notes}">${rawDataTitle()}</div></div>`}
 
     <div style="font-weight:bold;color:#333;margin-top:18px">${te('secSig')}</div>
     <table style="${S.table};margin-top:6px">
@@ -3655,14 +3660,49 @@ function rawPreviewHTML(){
      <div style="color:#888;font-size:11px;margin-top:5px">Imported data (downloads as ${rawDataTitle()}${RAW_EXT}). Reports below are derived from it; this preview isn't included in exports.</div>
    </div>`;
 }
-function render(){
+
+/* ---- preserve manual report edits across re-renders ---- */
+const REPORT_BODY_CACHE={};   // sample label -> {html, editable}
+function reportBodyKey(s,i){ return (s&&s.label)||('report-'+(i!=null?i:0)); }
+function clearReportBodies(){ for(const k in REPORT_BODY_CACHE) delete REPORT_BODY_CACHE[k]; }
+function captureReportBodies(){
+  reportEls().forEach((rep,i)=>{
+    const s=SAMPLES[i]; if(!s) return;
+    REPORT_BODY_CACHE[reportBodyKey(s,i)]={
+      html:reportExportHTML(rep),
+      editable:rep.getAttribute('contenteditable')==='true'
+    };
+  });
+}
+function applyReportBodies(){
+  reportEls().forEach((rep,i)=>{
+    const s=SAMPLES[i]; if(!s) return;
+    const cached=REPORT_BODY_CACHE[reportBodyKey(s,i)];
+    if(!cached||!cached.html) return;
+    rep.querySelectorAll(':scope > *:not(.no-export)').forEach(n=>n.remove());
+    const tmp=document.createElement('div'); tmp.innerHTML=cached.html;
+    while(tmp.firstChild) rep.appendChild(tmp.firstChild);
+    rep.setAttribute('contenteditable',cached.editable?'true':'false');
+    const btn=rep.querySelector('.lockbtn');
+    if(btn){
+      btn.innerHTML=cached.editable?ICO_UNLOCK:ICO_LOCK;
+      btn.style.opacity=cached.editable?'0.8':'0.45';
+      btn.title=cached.editable?'Editing unlocked — click to lock':'Locked — click to unlock editing';
+    }
+  });
+}
+
+function render(opts){
+  opts=opts||{};
+  const preserve=opts.preserveEdits!==false;
+  if(preserve && SAMPLES.length && reportEls().length) captureReportBodies();
   const box=document.getElementById('reports');
   const empty=!SAMPLES.length;
   document.getElementById('panel').classList.toggle('has-data', !empty);
   document.getElementById('dropCenter').style.display = empty?'flex':'none';
   if(empty){ box.innerHTML=''; document.getElementById('rawPreview').innerHTML='';
     document.getElementById('status').textContent=''; document.getElementById('toolbar').style.display='none';
-    document.getElementById('panelHandle').style.display='none'; renderWarnings(); updateFinalizeBar(); return; }
+    document.getElementById('panelHandle').style.display='none'; clearReportBodies(); renderWarnings(); updateFinalizeBar(); return; }
   document.getElementById('rawPreview').innerHTML=rawPreviewHTML();
   box.innerHTML=SAMPLES.map((s,i)=>`
     <div class="report-wrap">
@@ -3682,6 +3722,7 @@ function render(){
   document.getElementById('toolbar').style.display='flex';
   document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
+  if(preserve) applyReportBodies();
   renderWarnings();
   maybeAutoFinalize();     // lock once nothing needs attention (λ stays editable)
   applyFinalizeState();
@@ -3735,7 +3776,15 @@ function reportTableToggle(i,key,on){
   const s=SAMPLES[i]; if(!s) return;
   s.hiddenTables=s.hiddenTables||{}; s.hiddenTables[key]=!on;
   addLog('REPORT',`${on?'Showed':'Hid'} ${key} table on report "${s.label}"`);
-  render();
+  const rep=reportEls()[i];
+  if(!rep){ render(); return; }
+  const blocks=rep.querySelectorAll('[data-rpt-table="'+key+'"]');
+  if(!blocks.length && on){
+    delete REPORT_BODY_CACHE[reportBodyKey(s,i)];   // section was omitted — rebuild without stale body
+    render({preserveEdits:true});
+    return;
+  }
+  blocks.forEach(el=>{ el.style.display=on?'':'none'; });
 }
 function reportAddMetal(i){
   const s=SAMPLES[i]; if(!s) return;
@@ -3745,14 +3794,16 @@ function reportAddMetal(i){
   s.metalSpecs.push({el, name:(ELEMENT_NAMES[el]?ELEMENT_NAMES[el]+' ('+el+')':el), limit:lim});
   s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
   addLog('REPORT',`Added heavy metal ${el} (limit ${lim}%) to report "${s.label}"`);
-  render();
+  delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
+  render({preserveEdits:false});
 }
 function reportRemoveMetal(i,el){
   const s=SAMPLES[i]; if(!s) return;
   s.metalSpecs=s.metalSpecs.filter(m=>m.el!==el);
   s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
   addLog('REPORT',`Removed heavy metal ${el} from report "${s.label}"`);
-  render();
+  delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
+  render({preserveEdits:false});
 }
 
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
@@ -3782,7 +3833,8 @@ function setReportWl(i,tbl,el,val){
   if(val==='auto') delete s.wlOverrides[tbl+':'+el]; else s.wlOverrides[tbl+':'+el]=val;
   recomputeSample(s);
   addLog('REPORT',`Wavelength for ${el} (${tbl}) on report "${s.label}" set to ${val}`);
-  render();
+  delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
+  render({preserveEdits:false});
 }
 document.addEventListener('click',e=>{
   if(e.target.classList&&e.target.classList.contains('wlcell')){ e.stopPropagation(); openWlMenu(e.target); }
@@ -3937,8 +3989,9 @@ function readFile(file){
       const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
       LAST_WB=wb;                                                  // enable re-processing on override/mode change
       FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false; // fresh import starts unlocked
+      clearReportBodies();
       processWorkbook(wb);
-      render();
+      render({preserveEdits:false});
       const bad=SAMPLES.filter(s=>s.error).length;
       status.textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
                               :`✅ ${SAMPLES.length} sample(s) parsed from ${file.name}: `)+
@@ -3957,7 +4010,7 @@ let lastFile=null, LAST_WB=null;
 // re-run parsing from whatever the last source was (file OR pasted data),
 // e.g. after a sample-type override or a wavelength-mode change.
 function reprocessLast(){
-  if(LAST_WB){ processWorkbook(LAST_WB); render(); }
+  if(LAST_WB){ clearReportBodies(); processWorkbook(LAST_WB); render({preserveEdits:false}); }
   else if(lastFile){ readFile(lastFile); }
 }
 
@@ -4745,7 +4798,8 @@ function loadPasted(){
     RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
     lastFile=null; LAST_WB=wb;
     FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false;    // fresh import starts unlocked
-    processWorkbook(wb); render();
+    clearReportBodies();
+    processWorkbook(wb); render({preserveEdits:false});
     const bad=SAMPLES.filter(s=>s.error).length;
     document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
       :`✅ ${SAMPLES.length} sample(s) parsed from pasted data: `)+SAMPLES.map(s=>s.label).join(', ');
@@ -4774,8 +4828,8 @@ document.addEventListener('drop',e=>{ if(e.target.closest&&e.target.closest('#dr
 // re-process when mode changes
 document.querySelectorAll('input[name="mode"]').forEach(r=>
   r.addEventListener('change',()=>{addLog('SETTING','Wavelength mode changed to: '+r.value);reprocessLast();}));
-// re-render on settings change (note: this rebuilds reports, clearing manual edits)
-document.getElementById('repdate').addEventListener('change',render);
+// re-render on report-date change (manual report edits are preserved)
+document.getElementById('repdate').addEventListener('change',()=>render());
 
 // default date = today
 document.getElementById('repdate').valueAsDate=new Date();
