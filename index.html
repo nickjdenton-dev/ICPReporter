@@ -2214,7 +2214,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.9';   // bump on each release
+const APP_VERSION='v5.10';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3376,7 +3376,8 @@ function buildSample(s,elemCols,mode){
 
   const reportDate=fmtDate(parseTS(s.timestamp));   // from the raw-data timestamp
   return {label:s.label, batch, type, tube, reportDate, macro, additional, hasPhosphite,
-          matched:known, error, metals, macroDefs, microDefs, metalSpecs, wlOverrides, hiddenTables:{}, row:s.row};
+          matched:known, error, metals, macroDefs, microDefs, metalSpecs, wlOverrides,
+          hiddenTables:{}, fieldOverrides:{}, row:s.row};
 }
 // recompute one sample's rows after a per-report wavelength override change
 function recomputeSample(s){
@@ -3569,11 +3570,16 @@ function reportHTML(s,idx){
         <tr>${nameCell(a,false)}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
     : `<tr>${cell('n/a').repeat(4)}</tr>`;
 
-  const metalRows=s.metals.map(hm=>`
-    <tr><td style="${S.td}"><b>${hm.name}</b></td>
+  const metalRows=s.metals.map(hm=>{
+    const detKey='metal:'+hm.el+':detected';
+    const detText=(s.fieldOverrides&&s.fieldOverrides[detKey])
+      || `${hm.detected}${hm.qty?(' — '+hm.qty):''}`;
+    const detNd=!(s.fieldOverrides&&s.fieldOverrides[detKey]) && hm.detected!=='Y';
+    return `<tr><td style="${S.td}"><b>${hm.name}</b></td>
         <td style="${S.td}">${hm.limit.toFixed(3)}</td>
-        <td style="${S.td}${hm.detected==='Y'?'':';'+S.nd}">${hm.detected}${hm.qty?(' — '+hm.qty):''}</td>
-        ${wlCell(hm.el,hm.wl,'metal')}</tr>`).join('');
+        <td style="${S.td}${detNd?';'+S.nd:''}">${detText}</td>
+        ${wlCell(hm.el,hm.wl,'metal')}</tr>`;
+  }).join('');
 
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">${ICO_LOCK}</button>` : '';
@@ -3662,23 +3668,49 @@ function rawPreviewHTML(){
 }
 
 /* ---- preserve manual report edits across re-renders ---- */
-const REPORT_BODY_CACHE={};   // sample label -> {html, editable}
+const REPORT_BODY_CACHE={};   // sample label -> {html, editable, dataSig}
 function reportBodyKey(s,i){ return (s&&s.label)||('report-'+(i!=null?i:0)); }
+function reportDataSig(s){
+  return JSON.stringify({wl:s.wlOverrides||{}, fld:s.fieldOverrides||{}});
+}
 function clearReportBodies(){ for(const k in REPORT_BODY_CACHE) delete REPORT_BODY_CACHE[k]; }
+// Pull hand-edited heavy-metal "Detected" text out of the live DOM into the sample object.
+function syncFieldOverridesFromDom(i){
+  const s=SAMPLES[i], rep=reportEls()[i]; if(!s||!rep) return;
+  s.fieldOverrides=s.fieldOverrides||{};
+  rep.querySelectorAll('.wlcell[data-tbl="metal"]').forEach(cell=>{
+    const el=cell.getAttribute('data-el');
+    const hm=s.metals.find(m=>m.el===el); if(!hm) return;
+    const tr=cell.closest('tr'); const det=tr&&tr.querySelectorAll('td')[2];
+    if(!det) return;
+    const key='metal:'+el+':detected';
+    const computed=`${hm.detected}${hm.qty?(' — '+hm.qty):''}`.trim();
+    const current=det.textContent.trim();
+    if(current && current!==computed) s.fieldOverrides[key]=current;
+    else delete s.fieldOverrides[key];
+  });
+}
+function syncAllFieldOverrides(){ reportEls().forEach((_,i)=>syncFieldOverridesFromDom(i)); }
 function captureReportBodies(){
+  syncAllFieldOverrides();
   reportEls().forEach((rep,i)=>{
     const s=SAMPLES[i]; if(!s) return;
     REPORT_BODY_CACHE[reportBodyKey(s,i)]={
       html:reportExportHTML(rep),
-      editable:rep.getAttribute('contenteditable')==='true'
+      editable:rep.getAttribute('contenteditable')==='true',
+      dataSig:reportDataSig(s)
     };
   });
 }
-function applyReportBodies(){
+function applyReportBodies(skipRestore){
+  skipRestore=skipRestore||new Set();
   reportEls().forEach((rep,i)=>{
+    if(skipRestore.has(i)) return;
     const s=SAMPLES[i]; if(!s) return;
     const cached=REPORT_BODY_CACHE[reportBodyKey(s,i)];
     if(!cached||!cached.html) return;
+    // Don't restore stale HTML when wavelength or detected overrides changed since capture.
+    if(cached.dataSig && cached.dataSig!==reportDataSig(s)) return;
     rep.querySelectorAll(':scope > *:not(.no-export)').forEach(n=>n.remove());
     const tmp=document.createElement('div'); tmp.innerHTML=cached.html;
     while(tmp.firstChild) rep.appendChild(tmp.firstChild);
@@ -3691,10 +3723,42 @@ function applyReportBodies(){
     }
   });
 }
+// Update one report's table cells after a wavelength recompute — no full re-render.
+function patchReportAfterRecompute(i, onlyTbl, onlyEl){
+  const s=SAMPLES[i], rep=reportEls()[i]; if(!s||!rep) return;
+  const St=styleSet(reportColors());
+  const ndSpan='<span style="'+St.nd+'">Non-Detect</span>';
+  const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
+  const measured=(m)=> m.kind==='value'?sig3(m.value) : m.kind==='nd'?ndSpan : naSpan;
+  const patch=(tbl,el,m)=>{
+    if(onlyTbl&&onlyTbl!==tbl) return;
+    if(onlyEl&&onlyEl!==el) return;
+    const cell=rep.querySelector(`.wlcell[data-tbl="${tbl}"][data-el="${el}"]`);
+    if(!cell) return;
+    const tr=cell.closest('tr'); if(!tr) return;
+    const tds=tr.querySelectorAll('td');
+    cell.textContent=m.wl;
+    if(tbl==='metal'){
+      if(tds.length<4) return;
+      const key='metal:'+el+':detected';
+      if(!(s.fieldOverrides&&s.fieldOverrides[key])){
+        tds[2].innerHTML=`${m.detected}${m.qty?(' — '+m.qty):''}`;
+        tds[2].style.cssText=St.td+(m.detected==='Y'?'':';'+St.nd);
+      }
+    }else if(tds.length>=2){
+      tds[1].innerHTML=measured(m);
+    }
+  };
+  s.macro.forEach(m=>patch('macro',m.el,m));
+  s.additional.forEach(m=>patch('micro',m.el,m));
+  s.metals.forEach(m=>patch('metal',m.el,m));
+}
 
 function render(opts){
   opts=opts||{};
   const preserve=opts.preserveEdits!==false;
+  const skipRestore=new Set(opts.skipRestore||[]);
+  if(SAMPLES.length && reportEls().length) syncAllFieldOverrides();
   if(preserve && SAMPLES.length && reportEls().length) captureReportBodies();
   const box=document.getElementById('reports');
   const empty=!SAMPLES.length;
@@ -3722,7 +3786,7 @@ function render(opts){
   document.getElementById('toolbar').style.display='flex';
   document.getElementById('panelHandle').style.display='flex';
   OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
-  if(preserve) applyReportBodies();
+  if(preserve) applyReportBodies(skipRestore);
   renderWarnings();
   maybeAutoFinalize();     // lock once nothing needs attention (λ stays editable)
   applyFinalizeState();
@@ -3795,15 +3859,16 @@ function reportAddMetal(i){
   s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
   addLog('REPORT',`Added heavy metal ${el} (limit ${lim}%) to report "${s.label}"`);
   delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
-  render({preserveEdits:false});
+  render({preserveEdits:true, skipRestore:[i]});
 }
 function reportRemoveMetal(i,el){
   const s=SAMPLES[i]; if(!s) return;
   s.metalSpecs=s.metalSpecs.filter(m=>m.el!==el);
   s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
+  if(s.fieldOverrides) delete s.fieldOverrides['metal:'+el+':detected'];
   addLog('REPORT',`Removed heavy metal ${el} from report "${s.label}"`);
   delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
-  render({preserveEdits:false});
+  render({preserveEdits:true, skipRestore:[i]});
 }
 
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
@@ -3814,8 +3879,8 @@ function openWlMenu(cell){
   const s=SAMPLES[i]; if(!s) return;
   const optWl=OPTIMUM_WAVELENGTHS[el];
   const cols=(ELEM_COLS[el]||[]).slice().sort((a,b)=>a.wl-b.wl);
-  const cur=(s.wlOverrides&&s.wlOverrides[tbl+':'+el]) || 'optimum';
-  const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}','${String(val).replace(/'/g,"\\'")}')">${cur==val?'✓ ':''}${label}</button>`;
+  const cur=String((s.wlOverrides&&s.wlOverrides[tbl+':'+el]) || 'optimum');
+  const opt=(val,label)=>`<button onclick="setReportWl(${i},'${tbl}','${el}','${String(val).replace(/'/g,"\\'")}')">${cur===String(val)?'✓ ':''}${label}</button>`;
   let html=opt('optimum','Optimum line'+(optWl?` (${optWl} nm)`:''));
   const alt=cols.filter(c=>!(optWl && Math.abs(c.wl-optWl)<0.01));
   if(alt.length) html+=alt.map(c=>opt(c.wl, c.wl+' nm')).join('');
@@ -3834,7 +3899,7 @@ function setReportWl(i,tbl,el,val){
   recomputeSample(s);
   addLog('REPORT',`Wavelength for ${el} (${tbl}) on report "${s.label}" set to ${val}`);
   delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
-  render({preserveEdits:false});
+  patchReportAfterRecompute(i, tbl, el);
 }
 document.addEventListener('click',e=>{
   if(e.target.classList&&e.target.classList.contains('wlcell')){ e.stopPropagation(); openWlMenu(e.target); }
@@ -4010,11 +4075,13 @@ let lastFile=null, LAST_WB=null;
 // Keep per-report wavelength picks and table visibility when re-parsing after a
 // sample-matrix or type change — only the analyte definitions should refresh.
 function snapshotReportState(){
+  syncAllFieldOverrides();
   const snap={};
   SAMPLES.forEach(s=>{
     snap[s.label]={
       wlOverrides: s.wlOverrides ? {...s.wlOverrides} : {},
-      hiddenTables: s.hiddenTables ? {...s.hiddenTables} : {}
+      hiddenTables: s.hiddenTables ? {...s.hiddenTables} : {},
+      fieldOverrides: s.fieldOverrides ? {...s.fieldOverrides} : {}
     };
   });
   return snap;
@@ -4025,6 +4092,7 @@ function restoreReportState(snap){
     const saved=snap[s.label]; if(!saved) return;
     s.wlOverrides={...saved.wlOverrides};
     s.hiddenTables={...saved.hiddenTables};
+    s.fieldOverrides={...(saved.fieldOverrides||{})};
     recomputeSample(s);
   });
 }
