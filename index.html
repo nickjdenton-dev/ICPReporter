@@ -2214,7 +2214,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.8';   // bump on each release
+const APP_VERSION='v5.9';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4007,10 +4007,38 @@ function readFile(file){
 }
 
 let lastFile=null, LAST_WB=null;
+// Keep per-report wavelength picks and table visibility when re-parsing after a
+// sample-matrix or type change — only the analyte definitions should refresh.
+function snapshotReportState(){
+  const snap={};
+  SAMPLES.forEach(s=>{
+    snap[s.label]={
+      wlOverrides: s.wlOverrides ? {...s.wlOverrides} : {},
+      hiddenTables: s.hiddenTables ? {...s.hiddenTables} : {}
+    };
+  });
+  return snap;
+}
+function restoreReportState(snap){
+  if(!snap) return;
+  SAMPLES.forEach(s=>{
+    const saved=snap[s.label]; if(!saved) return;
+    s.wlOverrides={...saved.wlOverrides};
+    s.hiddenTables={...saved.hiddenTables};
+    recomputeSample(s);
+  });
+}
 // re-run parsing from whatever the last source was (file OR pasted data),
 // e.g. after a sample-type override or a wavelength-mode change.
-function reprocessLast(){
-  if(LAST_WB){ clearReportBodies(); processWorkbook(LAST_WB); render({preserveEdits:false}); }
+function reprocessLast(opts){
+  opts=opts||{};
+  if(LAST_WB){
+    const snap = opts.preserveReportState!==false ? snapshotReportState() : null;
+    clearReportBodies();
+    processWorkbook(LAST_WB);
+    restoreReportState(snap);
+    render({preserveEdits:false});
+  }
   else if(lastFile){ readFile(lastFile); }
 }
 
@@ -4994,7 +5022,7 @@ function importLibrary(ev){
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
-function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast(); }
+function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
 
 function renderCatalogList(){
   const adm=isAdmin();
@@ -5052,16 +5080,16 @@ function saveCustomEls(o){ localStorage.setItem(CUSTOMEL_KEY, JSON.stringify(o))
 function elementChoices(){ return [...new Set([...Object.keys(OPTIMUM_WAVELENGTHS), ...Object.keys(COMPOUND_INFO), ...Object.keys(loadCustomEls())])].sort(); }
 function elName(e){ return ELEMENT_NAMES[e] || loadCustomEls()[e] || e; }
 function elLabel(e){ return COMPOUND_INFO[e]?COMPOUND_INFO[e].compound : (ELEMENT_NAMES[e]||loadCustomEls()[e] ? elName(e)+' ('+e+')' : e); }
-// analyte display: "Name (Form)" + coefficient note when converted; plain name otherwise
+// analyte display: prefer saved compound label; else "Name (Form)" + coefficient note when converted
 function analyteCell(a){
   const factor=a.factor||1, conv=factor!==1;
+  if(a.compound) return {label:a.compound, coeff:conv?factor:null};
   const base=a.name||ELEMENT_NAMES[a.el]||loadCustomEls()[a.el]||a.el;
   const form=a.form||(conv?FORM_BY_FACTOR[factor]:null);
   let label;
   if(conv && form) label=`${base} (${form})`;
-  else if(!conv && a.compound && !a.name) label=a.compound;   // legacy elemental e.g. "Calcium (Ca)"
   else label=base;
-  return {label, coeff: conv?factor:null};
+  return {label, coeff:conv?factor:null};
 }
 function convIndexForFactor(f){
   const i=CONV_OPTIONS.findIndex(o=>o.factor===f);
@@ -5098,6 +5126,7 @@ function specRowHTML(sp){
   const molRO = converted && !isCustom;   // preset forms are read-only
   return `<div class="specRow" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
     <select class="sEl" style="flex:2;padding:5px;min-width:150px">${els}</select>
+    <input class="sName" type="text" placeholder="analyte name (optional)" value="${(sp.name||'').replace(/"/g,'&quot;')}" style="flex:2;padding:5px;min-width:130px" title="Override the default element name on the report (e.g. Zinc Stearate)">
     <input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit %':'claim %'}" value="${sp.claim!=null?sp.claim:''}" style="flex:1;padding:5px;min-width:70px">
     <select class="sConv" style="flex:2;padding:5px;min-width:150px" ${isHeavy?'disabled':''}>${conv}</select>
     <input class="sFactor" type="number" step="any" placeholder="coefficient" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:90px;padding:5px;display:${isCustom&&!isHeavy?'':'none'}">
@@ -5205,7 +5234,7 @@ function collectSpecs(){
     const form = (factor!==1 && table!=='heavy') ? (r.querySelector('.sMol').value.trim()||CONV_OPTIONS[+r.querySelector('.sConv').value].form||'') : '';
     const wlSel=r.querySelector('.sWl').value;
     const wl = (wlSel==='auto') ? undefined : wlSel;   // 'auto' = follow global mode
-    const name = elName(el);
+    const name = (r.querySelector('.sName').value.trim()) || elName(el);
     // compound: "Name (Form)" when converted, else "Name (Symbol)" style
     const compound = form ? `${name} (${form})` : (COMPOUND_INFO[el]?COMPOUND_INFO[el].compound:elLabel(el));
     return {el, name, form:form||undefined, compound, factor, claim:claimV===''?null:parseFloat(claimV), table, wl};
@@ -5264,13 +5293,22 @@ function _saveSpec(){
   const msg=document.getElementById('saveMsg'); if(msg) msg.textContent='✅ Saved.';
 }
 
+// Pull stored analyte fields into the spec-row editor (compound -> name/form when needed).
+function analyteToSpec(a,table){
+  let form=a.form, name=a.name;
+  if(!form && a.compound && (a.factor||1)!==1){
+    const m=String(a.compound).match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    if(m){ name=name||m[1].trim(); form=m[2].trim(); }
+  }
+  return {el:a.el, claim:a.claim, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
+}
 // load all three categories of a type into the editor, tagged by table
 function editType(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
   const cs=loadCustom()[key], ms=loadTypeMetals()[key];
   const name=(e&&e.names) || (cs&&cs.disp) || (ms&&ms.disp) || key;
-  const macro=(e?e._analytes:[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, form:a.form, name:a.name, table:'macro', wl:a.wl}));
-  const micro=((cs&&cs.specs)||[]).map(a=>({el:a.el, claim:a.claim, factor:a.factor, form:a.form, name:a.name, table:'micro', wl:a.wl}));
+  const macro=(e?e._analytes:[]).map(a=>analyteToSpec(a,'macro'));
+  const micro=((cs&&cs.specs)||[]).map(a=>analyteToSpec(a,'micro'));
   const metals=((ms&&ms.metals)||[]).map(a=>({el:a.el, claim:a.limit, factor:1, table:'heavy', wl:a.wl}));
   EDIT_CONTEXT={key, name, specs:macro.concat(micro,metals)};
   renderAddForm();
