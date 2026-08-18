@@ -1871,6 +1871,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .modal-backdrop{position:fixed;inset:0;background:rgba(15,40,65,.28);z-index:200;display:none;
     align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto}
   .modal-backdrop.open{display:flex}
+  .modal-backdrop.modal-centered{align-items:center}
+  .modal-backdrop.modal-centered .modal-panel{margin:auto}
+  .trk-file-label{cursor:help;border-bottom:1px dotted #8a97a3;font-size:12px}
   .modal-panel{background:#fff;border:1px solid #b8c4cf;border-radius:4px;
     box-shadow:0 10px 36px rgba(15,40,65,.16);width:100%;position:relative}
   .modal-hdr{display:flex;align-items:center;gap:10px;padding:9px 12px;background:linear-gradient(#f6f9fc,#eef3f8);
@@ -2081,7 +2084,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         <button class="act sec" onclick="pickTrackerFile()">Select tracker file…</button>
         <button class="act sec" onclick="newTrackerFile()" title="Create a brand-new, empty tracker workbook">New tracker…</button>
         <button class="act sec" onclick="importTrackerHistory()" title="One-time: copy all rows from your existing tracker workbook into this one">Import history…</button>
-        <span id="trkFile" style="font-size:12px;color:#555"></span>
+        <span id="trkFile" class="trk-file-label"></span>
       </div>
       <div style="font-size:11px;color:#888;margin-top:4px">
       <b>Select tracker file…</b> picks the workbook you commit <i>into</i> — the one that keeps the charts.
@@ -2122,7 +2125,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<div id="reportLayoutModal" class="modal-backdrop" onclick="if(event.target===this)closeReportLayout()">
+<div id="reportLayoutModal" class="modal-backdrop modal-centered" style="z-index:425" onclick="if(event.target===this)closeReportLayout()">
   <div class="modal-panel" style="max-width:460px">
     <div class="modal-hdr">
       <h2 id="reportLayoutTitle">Report settings</h2>
@@ -2327,7 +2330,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.1';   // bump on each release
+const APP_VERSION='v5.15.2';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4390,9 +4393,7 @@ function toggleFinalize(){
     setAllReportsLocked(true);
     applyFinalizeState();
     addLog('REPORT','All reports finalized & locked');
-    if(confirm('Reports are locked.\n\nCommit selected samples to the tracker now?')){
-      openTracker(true);
-    }
+    openTracker(true);
   });
 }
 function updateFinalizeBar(){
@@ -4504,13 +4505,22 @@ function trackerRowsFor(s){
 let TRACKER_HANDLE=null;
 async function loadTrackerHandle(){ try{ TRACKER_HANDLE=(await idbGet('trackerHandle'))||null; }catch(e){ TRACKER_HANDLE=null; } updateTrackerFileLabel(); }
 function updateTrackerFileLabel(){ const el=document.getElementById('trkFile'); if(!el) return;
-  el.textContent = TRACKER_HANDLE ? ('Using: '+TRACKER_HANDLE.name+'  ['+APP_VERSION+']')
-                                  : 'No tracker file chosen yet.  ['+APP_VERSION+']';
-  el.style.color = TRACKER_HANDLE ? '#2e7d32' : '#a33';
-  // don't wait for a failed commit to reveal that the remembered file is gone
+  if(TRACKER_HANDLE){
+    const name=TRACKER_HANDLE.name;
+    el.textContent='Linked: '+name;
+    el.style.color='#2e7d32';
+    el.title='Tracker workbook: '+name
+      +'\n\nThe browser hides the full folder path for security. Hover here to see the linked filename.'
+      +' If the file was moved or renamed, choose "Select tracker file…" again.';
+  }else{
+    el.textContent='No tracker file chosen yet.';
+    el.style.color='#a33';
+    el.title='Use "New tracker…" for a fresh workbook, or "Select tracker file…" to link an existing one.';
+  }
   if(TRACKER_HANDLE) trackerFileMissing().then(gone=>{ if(!gone) return;
-    el.textContent='"'+TRACKER_HANDLE.name+'" is no longer where it was chosen from — select it again.'
-      +'  ['+APP_VERSION+']';
+    el.textContent='Missing: '+TRACKER_HANDLE.name+' — select again';
+    el.title='The linked file "'+TRACKER_HANDLE.name+'" is no longer where it was chosen from.'
+      +' Use "Select tracker file…" and pick it from its new location.';
     el.style.color='#a33'; });
 }
 const TRK_XLSX_TYPES=[{description:'Excel workbook',
@@ -4882,7 +4892,6 @@ async function commitToTracker(){
       +(extended.length?' — added charts to '+extended.join(', '):'');
     addLog('TRACKER','Committed '+picked.length+' sample(s) ('+added+' new, '+updated+' updated) to "'+TRACKER_HANDLE.name+'" by '+userFullName(CURRENT_USER),
       {samples:picked.map(s=>s.label), rows:added+updated, added:added, updated:updated, file:TRACKER_HANDLE.name, mergeRetries:retries});
-    setTimeout(closeTracker,2400);
   }catch(e){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Commit failed: '+m;
