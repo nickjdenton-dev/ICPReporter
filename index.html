@@ -1732,9 +1732,16 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   button.sec:hover{background:#e9f1f8}
   #status{font-size:13px;color:#555;margin-top:10px;min-height:16px}
   #status:empty,#warnings:empty{display:none;margin:0;min-height:0}
-  /* A batch with many bad labels used to stack dozens of banners, pushing the panel
-     (and its drag handle) off-screen. Cap it and let the list scroll instead. */
-  #warnings{max-height:32vh;overflow-y:auto}
+  #warnings{display:none}
+  .raw-err-row{cursor:pointer}
+  .raw-err-row:hover{outline:2px solid #0f4c81;outline-offset:-2px}
+  .raw-err-hint{font-size:12px;color:#555;margin:8px 0 6px;padding:8px 10px;background:#f8f4e8;
+    border:1px solid #e8dcc0;border-radius:5px}
+  .report-wrap.has-err-hard{box-shadow:inset 4px 0 0 #c0392b}
+  .report-wrap.has-err-soft{box-shadow:inset 4px 0 0 #b8860b}
+  .report-wrap.report-flash{animation:repFlash .7s ease 2}
+  @keyframes repFlash{50%{background:#fff8e1}}
+  .rep-err-badge{cursor:pointer;font-size:14px;font-weight:bold;margin-left:5px}
   /* icon-only buttons (edit / delete) with hover tooltips */
   .icobtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
     margin:0 2px;padding:0;border:1px solid #c3ccd5;border-radius:4px;background:#fff;
@@ -1959,6 +1966,19 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <div id="reports"></div>
+
+<div id="sampleErrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:205;overflow:auto;padding:30px">
+  <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:flex-start;margin-bottom:10px;gap:10px">
+      <div style="flex:1;min-width:0">
+        <h2 style="margin:0 0 4px;color:#0f4c81;font-size:18px">Sample needs attention</h2>
+        <div id="sampleErrTitle" style="font-size:13px;color:#666;word-break:break-word"></div>
+      </div>
+      <button class="act sec" onclick="closeSampleError()">Close</button>
+    </div>
+    <div id="sampleErrBody"></div>
+  </div>
+</div>
 
 <div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow:auto;padding:30px">
   <div style="background:#fff;max-width:820px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
@@ -2214,7 +2234,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.10';   // bump on each release
+const APP_VERSION='v5.11';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3150,7 +3170,7 @@ function parseHeader(h){
    CORE PARSING
    ===================================================================== */
 let SAMPLES=[];   // parsed sample objects for current file
-let RAW_GRID=[], RAW_HEADERROW=0, RAW_DATE=null;   // raw sheet + batch date for Raw Data doc
+let RAW_GRID=[], RAW_HEADERROW=0, RAW_LABEL_COL=-1, RAW_DATE=null;   // raw sheet + batch date for Raw Data doc
 let RAW_BYTES=null, RAW_EXT='.xlsx';   // original imported file bytes + extension (for exact re-export)
 const TYPE_OVERRIDES={};   // raw label -> user-chosen sample type (resolves unknown-type errors)
 const DISMISSED_FUZZY=new Set();   // labels whose fuzzy-match notice the user has dismissed
@@ -3170,6 +3190,7 @@ function processWorkbook(wb){
   const headers=rows[hrow];
   // map: element -> [{wl, col}], and find the label / timestamp columns
   let labelCol=headers.findIndex(c=>/solution label/i.test(String(c)));
+  RAW_LABEL_COL=labelCol;
   let tsCol=headers.findIndex(c=>/timestamp|time stamp|date/i.test(String(c)));
   const elemCols={};
   headers.forEach((h,ci)=>{
@@ -3437,68 +3458,94 @@ function typeOptionsHTML(current){
     return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;}).join('');
 }
 
-// error banner with interactive Yes/No + type-picker controls
-function buildErrBanner(s){
+// Interactive fix controls for a sample with a type/label error (modal + legacy hooks).
+function buildSampleErrControls(s){
   const e=s.error; if(!e) return '';
   const hard=!e.soft;
-  const col=hard?{b:'#c0392b',bg:'#fdecea',t:'#922'}:{b:'#b8860b',bg:'#fff8e1',t:'#7a5c00'};
   const lbl=JSON.stringify(s.label);
-  const btn='cursor:pointer;border:1px solid #888;border-radius:4px;padding:3px 12px;margin-right:6px;font-size:12px;background:#fff';
-  let controls='';
+  const btn='cursor:pointer;border:1px solid #888;border-radius:4px;padding:6px 14px;margin-right:8px;font-size:13px;background:#fff';
   if(hard){
     const yesNo=e.suggestion?
-      `<button type="button" style="${btn}" onclick='applySuggestion(${lbl},${JSON.stringify(e.suggestion)})'>✓ Yes</button>`+
-      `<button type="button" style="${btn}" onclick='revealPicker(this)'>✕ No</button>`:'';
-    const pick=`<span class="typePicker" style="display:${e.suggestion?'none':'inline'}">
-        <select onchange='chooseType(${lbl},this.value)' style="padding:4px;font-size:12px">
+      `<button type="button" style="${btn}" onclick='applySuggestion(${lbl},${JSON.stringify(e.suggestion)})'>✓ Yes — use "${e.suggestion}"</button>`+
+      `<button type="button" style="${btn}" onclick='revealPicker(this)'>✕ No — pick another</button>`:'';
+    const pick=`<span class="typePicker" style="display:${e.suggestion?'none':'block'};margin-top:10px">
+        <label style="display:block;font-size:12px;color:#666;margin-bottom:4px">Select sample type:</label>
+        <select onchange='chooseType(${lbl},this.value)' style="padding:6px;font-size:13px;width:100%;max-width:360px">
           <option value="">— select sample type —</option>
           ${typeOptionsHTML()}
           <option value="__new__">Add new sample type…</option>
         </select></span>`;
-    controls=`<div style="margin-top:7px">${yesNo}${pick}</div>`;
-  }else{
-    // soft (fuzzy auto-match): allow dismiss, or change to another type / add new
-    const pick=`<span class="typePicker" style="display:none">
-        <select onchange='chooseType(${lbl},this.value)' style="padding:4px;font-size:12px">
-          <option value="">— select sample type —</option>
-          ${typeOptionsHTML()}
-          <option value="__new__">Add new sample type…</option>
-        </select></span>`;
-    controls=`<div style="margin-top:7px">
-      <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Dismiss</button>
-      <button type="button" style="${btn}" onclick='revealPicker(this)'>Change…</button>${pick}</div>`;
+    return `<div>${yesNo}${pick}</div>`;
   }
-  return `<div contenteditable="false" style="border:1px solid ${col.b};background:${col.bg};color:${col.t};
-      padding:8px 10px;margin-bottom:14px;font-size:13px;border-radius:4px">
-      ${hard?'⛔':'⚠️'} <b>${e.code}</b> — ${e.msg}${hard?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
-      ${controls}</div>`;
+  const pick=`<span class="typePicker" style="display:none;margin-top:10px">
+      <label style="display:block;font-size:12px;color:#666;margin-bottom:4px">Select sample type:</label>
+      <select onchange='chooseType(${lbl},this.value)' style="padding:6px;font-size:13px;width:100%;max-width:360px">
+        <option value="">— select sample type —</option>
+        ${typeOptionsHTML()}
+        <option value="__new__">Add new sample type…</option>
+      </select></span>`;
+  return `<div>
+    <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Accept match</button>
+    <button type="button" style="${btn}" onclick='revealPicker(this)'>Change type…</button>${pick}</div>`;
+}
+function sampleErrColors(s){
+  const hard=s.error&&!s.error.soft;
+  return hard?{b:'#c0392b',bg:'#fdecea',t:'#922',icon:'⛔'}:{b:'#b8860b',bg:'#fff8e1',t:'#7a5c00',icon:'⚠️'};
+}
+function openSampleError(label){
+  const s=SAMPLES.find(x=>x.label===label);
+  if(!s||!s.error) return;
+  const col=sampleErrColors(s);
+  document.getElementById('sampleErrTitle').textContent=s.label;
+  document.getElementById('sampleErrBody').innerHTML=`
+    <div style="border:1px solid ${col.b};background:${col.bg};color:${col.t};padding:12px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;line-height:1.45">
+      ${col.icon} <b>${s.error.code}</b> — ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
+    </div>
+    ${buildSampleErrControls(s)}
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid #eee">
+      <button type="button" class="act sec" onclick="scrollToReport(${JSON.stringify(label)})">View report ↓</button>
+    </div>`;
+  document.getElementById('sampleErrModal').style.display='block';
+}
+function closeSampleError(){ document.getElementById('sampleErrModal').style.display='none'; }
+function scrollToReport(label){
+  closeSampleError();
+  const i=SAMPLES.findIndex(s=>s.label===label);
+  if(i<0) return;
+  const wrap=document.getElementById('reportWrap'+i);
+  if(wrap){
+    wrap.scrollIntoView({behavior:'smooth',block:'start'});
+    wrap.classList.add('report-flash');
+    setTimeout(()=>wrap.classList.remove('report-flash'),1400);
+  }
 }
 function revealPicker(btn){
   const box=btn.parentNode;
   box.querySelectorAll('button').forEach(b=>b.style.display='none');
-  box.querySelector('.typePicker').style.display='inline';
+  const p=box.querySelector('.typePicker'); if(p) p.style.display='block';
 }
 function applySuggestion(label,type){
   TYPE_OVERRIDES[label]=type;
   addLog('TYPE_OVERRIDE',`Sample "${label}" confirmed as type "${type}" (suggestion accepted)`);
+  closeSampleError();
   reprocessLast();
 }
-// accept a fuzzy auto-match and hide its notice (kept dismissed for the session)
 function dismissFuzzy(label){
   DISMISSED_FUZZY.add(label);
   const s=SAMPLES.find(x=>x.label===label); if(s) s.error=null;
   addLog('TYPE_OVERRIDE',`Fuzzy match accepted (notice dismissed) for "${label}"`);
+  closeSampleError();
   render();
 }
 function chooseType(label,val){
   if(!val) return;
-  if(val==='__new__'){ PENDING_TYPE_LABEL=label; openCatalog(); return; }
-  // revert to the type read from the sample label (clears a manual override)
+  if(val==='__new__'){ PENDING_TYPE_LABEL=label; closeSampleError(); openCatalog(); return; }
   if(val==='__auto__'){ delete TYPE_OVERRIDES[label];
     addLog('TYPE_OVERRIDE',`Sample "${label}" reverted to the type read from its label`);
-    reprocessLast(); return; }
-  TYPE_OVERRIDES[label]=val.split('/')[0].trim();   // guard: use first name only
+    closeSampleError(); reprocessLast(); return; }
+  TYPE_OVERRIDES[label]=val.split('/')[0].trim();
   addLog('TYPE_OVERRIDE',`Sample "${label}" manually set to type "${TYPE_OVERRIDES[label]}"`);
+  closeSampleError();
   reprocessLast();
 }
 
@@ -3543,6 +3590,7 @@ function reportHTML(s,idx){
   const dDisp = s.reportDate || (uiDate?new Date(uiDate+'T00:00').toLocaleDateString('en-US'):'');
   const ndSpan='<span style="'+S.nd+'">Non-Detect</span>';
   const st=sampleTableVis(s);   // per-report table visibility
+  const errBadge=s.error?`<span class="rep-err-badge no-export" contenteditable="false" title="${String(s.error.msg).replace(/"/g,'&quot;')}" onclick="openSampleError(${JSON.stringify(s.label)})" style="color:${s.error.soft?'#b8860b':'#c0392b'}">${s.error.soft?'⚠️':'⛔'}</span>`:'';
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
   const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
@@ -3593,7 +3641,7 @@ function reportHTML(s,idx){
 
     <table style="${S.table}">
       <tr><th width="50%" style="${S.th}">${te('detailsHdr')}</th><th width="50%" style="${S.th}">${te('infoHdr')}</th></tr>
-      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td style="${S.td}">${te('lblSampleType')} ${s.type||''}</td></tr>
+      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td style="${S.td}">${te('lblSampleType')} ${s.type||''}${errBadge}</td></tr>
       <tr><td style="${S.td}">${te('lblAnalyst')} ${analyst}</td><td style="${S.td}">${te('lblBatch')} ${s.batch||''}</td></tr>
     </table>
 
@@ -3638,28 +3686,35 @@ function reportHTML(s,idx){
 }
 
 function renderWarnings(){
-  const box=document.getElementById('warnings');
-  const bad=SAMPLES.filter(s=>s.error);
-  if(!bad.length){box.innerHTML='';return;}
-  const hard=bad.filter(s=>!s.error.soft).length;
-  // one interactive banner per problem sample, listed below the raw data on the sliding panel
-  box.innerHTML=`<div style="font-weight:bold;color:${hard?'#a33':'#7a5c00'};font-size:13px;margin:10px 0 4px">
-      ${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention${hard?` — ${hard} unrecognized (defaulted to P₂O₅/K₂O only)`:' (auto-matched past small typos — please verify)'}</div>`
-    + bad.map(s=>buildErrBanner(s)).join('');
+  document.getElementById('warnings').innerHTML='';
 }
 // on-screen preview of the original raw data (excluded from exports & print)
 function rawPreviewHTML(){
   if(!RAW_GRID.length) return '';
+  const lc=RAW_LABEL_COL>=0?RAW_LABEL_COL:(RAW_GRID[RAW_HEADERROW]||[]).findIndex(c=>/solution label/i.test(String(c)));
+  const errByLabel={};
+  SAMPLES.forEach(s=>{ if(s.error) errByLabel[s.label]=s.error; });
+  const bad=SAMPLES.filter(s=>s.error);
+  const hard=bad.filter(s=>!s.error.soft).length;
   const tdR='border:1px solid #ccc;padding:2px 6px;font-size:10px;white-space:nowrap';
   const thR=tdR+';background:#f2f2f2;font-weight:bold;position:sticky;top:0';
   const rows=RAW_GRID.map(r=>{
     const isHdr=r.some(c=>/solution label/i.test(String(c)));
-    const st=isHdr?thR:tdR;
-    return '<tr>'+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
+    let st=isHdr?thR:tdR;
+    const lbl=(!isHdr&&lc>=0)?String(r[lc]||'').trim():'';
+    const err=lbl?errByLabel[lbl]:null;
+    let trAttr='';
+    if(err){
+      st+=(!err.soft?';background:#fdecea':';background:#fff8e1');
+      trAttr=` class="raw-err-row" onclick="openSampleError(${JSON.stringify(lbl)})" title="Click to review and fix this sample"`;
+    }
+    return `<tr${trAttr}>`+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
   }).join('');
+  const hint=bad.length?`<div class="raw-err-hint">${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention — click a highlighted row in the table to fix.</div>`:'';
   return `<div class="raw-preview" style="margin-top:10px">
      <div style="color:#9aa6ad;font-size:11px;letter-spacing:.3px;text-transform:uppercase;margin-bottom:1px">Source instrument: Agilent ICP-OES 5800</div>
      <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
+     ${hint}
      <div style="overflow:auto;max-height:300px;border:1px solid #ddd;border-radius:5px">
        <table style="border-collapse:collapse;font-family:Arial,sans-serif">${rows}</table>
      </div>
@@ -3769,10 +3824,10 @@ function render(opts){
     document.getElementById('panelHandle').style.display='none'; clearReportBodies(); renderWarnings(); updateFinalizeBar(); return; }
   document.getElementById('rawPreview').innerHTML=rawPreviewHTML();
   box.innerHTML=SAMPLES.map((s,i)=>`
-    <div class="report-wrap">
+    <div class="report-wrap${s.error?(s.error.soft?' has-err-soft':' has-err-hard'):''}" id="reportWrap${i}">
       <div class="rep-tools">
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
-        ${s.error?'<span style="color:'+(s.error.soft?'#b8860b':'#c0392b')+';font-weight:bold">'+(s.error.soft?'⚠️ ':'⛔ ')+s.error.code+'</span>':''}
+        ${s.error?`<span class="no-export" style="color:${s.error.soft?'#b8860b':'#c0392b'};font-weight:bold;cursor:pointer" onclick="openSampleError(${JSON.stringify(s.label)})" title="Click to fix">${s.error.soft?'⚠️':'⛔'} ${s.error.code}</span>`:''}
         <span style="position:relative;display:inline-block">
           <button onclick="toggleRepDl(${i},event)">Download ▾</button>
           <div id="repDl${i}" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:2px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:120px;overflow:hidden">
