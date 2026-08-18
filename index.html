@@ -2185,7 +2185,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           % below claim
         </label>
         <button class="act sec" onclick="applyTrendBands()" title="Save these limits and redraw every chart in the tracker workbook">Save &amp; redraw charts</button>
-        <button class="act sec" onclick="rebuildTrackerChartsFromUI()" title="Reread All Data and redraw every chart (after hand-editing rows in Excel)">Rebuild charts</button>
+        <button class="act sec" onclick="requestRebuildTrackerCharts()" title="Reread All Data and redraw every chart (after hand-editing rows in Excel)">Rebuild charts</button>
       </div>
       <div style="font-size:11px;color:#888;margin-top:4px">These are guaranteed minimums, so the lines sit below the
       label claim — a 5% warning on an 11.2% claim draws at 10.64.
@@ -2231,6 +2231,24 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="act sec" onclick="cancelTrkCommitConfirm()">Cancel</button>
         <button class="act" id="trkConfirmYes" onclick="confirmTrkCommit()">Yes — commit to tracker</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="trkRebuildConfirmModal" class="modal-backdrop modal-centered" style="z-index:435" onclick="if(event.target===this)cancelTrkRebuildConfirm()">
+  <div class="modal-panel" style="max-width:480px">
+    <div class="modal-hdr">
+      <h2>Confirm rebuild</h2>
+      <button type="button" class="modal-x" onclick="cancelTrkRebuildConfirm()" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.45"><b>Rebuild every chart from All Data?</b></p>
+      <div id="trkRebuildConfirmBody" style="font-size:13px;line-height:1.45;color:#444;margin-bottom:14px"></div>
+      <p style="margin:0 0 14px;font-size:12px;color:#666;line-height:1.4">Use this after hand-editing rows on the All Data sheet. Chart helper sheets are rewritten from those rows. All Data itself is not changed. The workbook must be closed in Excel.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="act sec" onclick="cancelTrkRebuildConfirm()">Cancel</button>
+        <button class="act" onclick="confirmTrkRebuild()">Yes — rebuild charts</button>
       </div>
     </div>
   </div>
@@ -2441,7 +2459,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.9';   // bump on each release
+const APP_VERSION='v5.15.10';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4900,9 +4918,19 @@ function alphabetizeTrackerTabs(doc){
   hid.sort(cmp);
   return doc.reorderSheets(data.concat(vis,hid).map(s=>s.name));
 }
-async function rebuildTrackerChartsFromUI(){
+async function requestRebuildTrackerCharts(){
   const msg=document.getElementById('trkMsg');
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
+  document.getElementById('trkRebuildConfirmBody').innerHTML=
+    '<p style="margin:0">Workbook: <b>'+(TRACKER_HANDLE.name||'tracker workbook').replace(/</g,'&lt;')+'</b></p>';
+  document.getElementById('trkRebuildConfirmModal').classList.add('open');
+}
+function cancelTrkRebuildConfirm(){
+  document.getElementById('trkRebuildConfirmModal').classList.remove('open');
+}
+async function confirmTrkRebuild(){
+  cancelTrkRebuildConfirm();
+  const msg=document.getElementById('trkMsg');
   await rebuildTrackerCharts(msg);
 }
 // build the long-format rows a single sample contributes
