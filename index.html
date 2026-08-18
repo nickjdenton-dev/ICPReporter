@@ -2191,7 +2191,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       label claim — a 5% warning on an 11.2% claim draws at 10.64. Saving redraws every chart in the workbook; no data is changed.</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
-      <button id="trkCommit" class="act" onclick="commitToTracker()">Commit selected to tracker</button>
+      <button id="trkCommit" class="act" onclick="requestCommitToTracker()">Commit selected to tracker</button>
       <span id="trkMsg" style="font-size:12px;color:#0f4c81"></span>
     </div>
     <div style="border:1px solid #b8860b;background:#fff8e1;color:#7a5c00;padding:9px 11px;border-radius:5px;font-size:12.5px;margin-top:16px">
@@ -2214,6 +2214,24 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
         <button class="act sec" onclick="cancelTrkResolve()">Cancel</button>
         <button class="act" onclick="confirmTrkResolve()">Continue commit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="trkConfirmModal" class="modal-backdrop modal-centered" style="z-index:435" onclick="if(event.target===this)cancelTrkCommitConfirm()">
+  <div class="modal-panel" style="max-width:480px">
+    <div class="modal-hdr">
+      <h2>Confirm commit</h2>
+      <button type="button" class="modal-x" onclick="cancelTrkCommitConfirm()" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.45"><b>Are you sure you wish to commit?</b></p>
+      <div id="trkConfirmBody" style="font-size:13px;line-height:1.45;color:#444;margin-bottom:14px"></div>
+      <p style="margin:0 0 14px;font-size:12px;color:#7a5c00;line-height:1.4">Committed data is appended to the shared tracker and becomes part of your organization&apos;s QC trend record. The workbook must be closed in Excel.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="act sec" onclick="cancelTrkCommitConfirm()">Cancel</button>
+        <button class="act" id="trkConfirmYes" onclick="confirmTrkCommit()">Yes — commit to tracker</button>
       </div>
     </div>
   </div>
@@ -2424,7 +2442,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.7';   // bump on each release
+const APP_VERSION='v5.15.8';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5239,21 +5257,50 @@ function trackerRowIndex(doc,colFor){
    like a rival commit, burned all five attempts and failed with "someone else
    is committing" when nobody was. A sync client re-writes the same bytes; only
    a real commit changes the length. ---- */
-async function commitToTracker(){
-  const msg=document.getElementById('trkMsg');
-  const picked=[...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
-  if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return; }
-  // hard stop: never write a sample whose type isn't a saved sample type
+function trackerPickedSamples(){
+  return [...document.querySelectorAll('.trkChk')].filter(c=>c.checked).map(c=>SAMPLES[+c.getAttribute('data-i')]);
+}
+function trackerCommitPreflight(msgEl){
+  const msg=msgEl||document.getElementById('trkMsg');
+  const picked=trackerPickedSamples();
+  if(!picked.length){ msg.style.color='#a33'; msg.textContent='Select at least one sample.'; return null; }
   const bad=picked.filter(s=>!trackable(s));
   if(bad.length){
     msg.style.color='#a33';
     msg.textContent=blockedNotice(bad);
     addLog('TRACKER','Commit blocked — sample type not confirmed for: '+bad.map(s=>s.label).join(', '));
-    return;
+    return null;
   }
-  if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
+  if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return null; }
   if(!XlsxPatch.supported()){ msg.style.color='#a33';
-    msg.textContent='Committing needs Chrome or Edge 103 or newer.'; return; }
+    msg.textContent='Committing needs Chrome or Edge 103 or newer.'; return null; }
+  return picked;
+}
+function requestCommitToTracker(){
+  const picked=trackerCommitPreflight();
+  if(!picked) return;
+  const names=picked.map(s=>(s.batch?s.batch+' ':'')+(s.type||s.label));
+  const list=names.length<=8
+    ? names.map(n=>'<li>'+n.replace(/</g,'&lt;')+'</li>').join('')
+    : names.slice(0,7).map(n=>'<li>'+n.replace(/</g,'&lt;')+'</li>').join('')
+      +'<li><i>…and '+(names.length-7)+' more</i></li>';
+  document.getElementById('trkConfirmBody').innerHTML=
+    '<p style="margin:0 0 8px">You are about to commit <b>'+picked.length+'</b> sample(s) to:</p>'
+    +'<p style="margin:0 0 10px"><b>'+(TRACKER_HANDLE.name||'tracker workbook').replace(/</g,'&lt;')+'</b></p>'
+    +'<ul style="margin:0 0 0 18px;padding:0">'+list+'</ul>';
+  document.getElementById('trkConfirmModal').classList.add('open');
+}
+function cancelTrkCommitConfirm(){
+  document.getElementById('trkConfirmModal').classList.remove('open');
+}
+function confirmTrkCommit(){
+  cancelTrkCommitConfirm();
+  commitToTracker();
+}
+async function commitToTracker(){
+  const msg=document.getElementById('trkMsg');
+  const picked=trackerCommitPreflight(msg);
+  if(!picked) return;
   const btn=document.getElementById('trkCommit'); btn.disabled=true;
   msg.style.color='#0f4c81'; msg.textContent='Committing…';
   try{
