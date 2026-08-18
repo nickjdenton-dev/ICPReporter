@@ -1371,6 +1371,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
                       measured: measured, claim: num(r[cols.LabelClaim]) });
     });
     Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
+    Object.keys(want).forEach(k => {
+      const pts = want[k];
+      let canon = null;
+      for (let i = pts.length - 1; i >= 0; i--) {
+        if (pts[i].claim != null) { canon = pts[i].claim; break; }
+      }
+      if (canon != null) pts.forEach(p => { if (p.claim == null) p.claim = canon; });
+    });
     return want;
   }
 
@@ -4706,6 +4714,24 @@ const TRK_FIELDS=[
 const TRK_HEADERS=TRK_FIELDS.map(f=>f[0]);
 const INSTRUMENT_NAME='Agilent ICP-OES 5800';
 const trkNum=v=>{ const n=parseFloat(v); return isFinite(n)?n:''; };
+function trkClaimNum(v){
+  if(typeof v==='number') return isFinite(v)?v:null;
+  const s=String(v==null?'':v).trim().replace(/,/g,'');
+  if(!s) return null;
+  const n=parseFloat(s);
+  return isFinite(n)?n:null;
+}
+function trackerRecency(imported, date){
+  const im=String(imported==null?'':imported).trim();
+  if(im){
+    let t=Date.parse(im.replace(' ','T'));
+    if(!isFinite(t)) t=Date.parse(im.replace(' ','T')+'Z');
+    if(isFinite(t)) return t;
+  }
+  const d=trkDateIso(date);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)) return Date.parse(d+'T12:00:00Z');
+  return 0;
+}
 /* ---- one spelling per analyte, one format per date ----
    The charts match on the Element string, so "Phosphorus (P2O5)" and
    "Phosphorus (P)" are two different analytes as far as Excel is concerned —
@@ -4981,6 +5007,51 @@ function normalizeTrackerElements(doc, colFor){
   });
   return n;
 }
+/* ---- unify label claims per product + analyte ----
+   Trend reference lines (claim / warn / limit) come from LabelClaim on each row.
+   Older commits and imports often left it blank, so charts show measured points
+   with no green/orange/red lines. For each sample type + element, take the claim
+   from the most recently uploaded row and apply it to every row in that group. */
+function normalizeTrackerClaims(doc, colFor){
+  if(!colFor||colFor.LabelClaim===undefined||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
+  const rows=doc.dataRows();
+  const groups=new Map();
+  rows.forEach((row,i)=>{
+    const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
+    const el=String(row[colFor.Element]==null?'':row[colFor.Element]).trim();
+    if(!st||!el) return;
+    const gkey=trackerCatalogKey(st)+'\u0001'+(trkElSymbol(el)||el.toLowerCase());
+    if(!groups.has(gkey)) groups.set(gkey,{st, el, entries:[]});
+    const g=groups.get(gkey);
+    g.entries.push({i,
+      claim:trkClaimNum(row[colFor.LabelClaim]),
+      recency:trackerRecency(colFor.ImportedAt!==undefined?row[colFor.ImportedAt]:'',
+        colFor.Date!==undefined?row[colFor.Date]:'')});
+  });
+  let n=0;
+  groups.forEach(g=>{
+    let latestClaim=null, bestRecency=-1;
+    g.entries.forEach(e=>{
+      if(e.claim===null) return;
+      if(e.recency>=bestRecency){ bestRecency=e.recency; latestClaim=e.claim; }
+    });
+    if(latestClaim===null){
+      const sym=trkElSymbol(g.el);
+      const hit=analytesForType(g.st).find(a=>a.el===sym);
+      if(hit&&hit.claim!=null) latestClaim=hit.claim;
+    }
+    if(latestClaim===null) return;
+    const canon=trkNum(latestClaim);
+    g.entries.forEach(e=>{
+      const cur=trkClaimNum(rows[e.i][colFor.LabelClaim]);
+      if(cur!==latestClaim){
+        doc.updateRow(e.i,{[colFor.LabelClaim]:canon});
+        n++;
+      }
+    });
+  });
+  return n;
+}
 function productsFromTrackerData(rows,colFor){
   const byKey={};
   if(!colFor||colFor.SampleType===undefined||colFor.Element===undefined) return [];
@@ -4988,7 +5059,7 @@ function productsFromTrackerData(rows,colFor){
     const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
     if(!st) return;
     const key=trackerCatalogKey(st);
-    if(!byKey[key]) byKey[key]={key, name:trkType(trackerDisplayName(st)), elements:new Map(), matchNames:new Set()};
+    if(!byKey[key]) byKey[key]={key, name:trkType(TRK_MERGE_CANON[key]||trackerDisplayName(st)), elements:new Map(), matchNames:new Set()};
     byKey[key].matchNames.add(st);
     const el=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
     if(!el) return;
@@ -5217,10 +5288,11 @@ async function rebuildTrackerCharts(msg, opts){
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     if(!st.headers) throw new Error('the tracker sheet has no header row yet.');
     const colFor=trackerColMap(st.headers);
-    let collapseStats=null, elNorm=0;
+    let collapseStats=null, elNorm=0, claimNorm=0;
     if(repair){
       collapseStats=collapseTrackerDuplicates(st.doc,colFor);
       elNorm=normalizeTrackerElements(st.doc,colFor);
+      claimNorm=normalizeTrackerClaims(st.doc,colFor);
       msg.textContent='Rebuilding charts…';
     }
     const rows=st.doc.dataRows();
@@ -5236,13 +5308,15 @@ async function rebuildTrackerCharts(msg, opts){
       +(collapseStats&&collapseStats.hidden.length?' — merged duplicate tab(s): '+collapseStats.hidden.join(', '):'')
       +(collapseStats&&collapseStats.normalized?' — normalized '+collapseStats.normalized+' sample type(s) in All Data':'')
       +(elNorm?' — aligned '+elNorm+' analyte label(s) with sample types':'')
+      +(claimNorm?' — unified '+claimNorm+' label claim(s) for trend lines':'')
       +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
     addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"'
       +(collapseStats?(' — merged '+collapseStats.hidden.length+' duplicate tab(s), normalized '
-        +collapseStats.normalized+' sample type(s), '+elNorm+' analyte label(s)'):''),
+        +collapseStats.normalized+' sample type(s), '+elNorm+' analyte label(s), '+claimNorm+' claim(s)'):''),
       {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct,
-        hiddenTabs:collapseStats?collapseStats.hidden:[], normalized:collapseStats?collapseStats.normalized:0,
-        elementsNormalized:elNorm});
+        hiddenTabs:collapseStats?collapseStats.hidden:[],
+        normalized:collapseStats?collapseStats.normalized:0,
+        elementsNormalized:elNorm, claimsNormalized:claimNorm});
   }catch(e){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Redraw failed: '+m;
@@ -5529,6 +5603,7 @@ async function commitToTracker(){
         });
       });
       normalizeTrackerElements(doc,colFor);
+      normalizeTrackerClaims(doc,colFor);
       collapseTrackerDuplicates(doc,colFor);
       msg.textContent='Building charts…';
       const sync=await QcCharts.sync(doc,
