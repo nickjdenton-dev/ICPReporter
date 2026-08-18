@@ -1739,7 +1739,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     border:1px solid #e8dcc0;border-radius:5px}
   .report-wrap.has-err-hard{box-shadow:inset 4px 0 0 #c0392b}
   .report-wrap.has-err-soft{box-shadow:inset 4px 0 0 #b8860b}
-  .report-wrap.report-flash{animation:repFlash .7s ease 2}
+  .report-wrap.report-flash{animation:repFlash .7s ease 3}
+  .report-wrap.report-jump-target{outline:3px solid #0f4c81;outline-offset:4px}
   @keyframes repFlash{50%{background:#fff8e1}}
   .rep-err-badge{cursor:pointer;font-size:14px;font-weight:bold;margin-left:5px}
   /* icon-only buttons (edit / delete) with hover tooltips */
@@ -2234,7 +2235,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.12';   // bump on each release
+const APP_VERSION='v5.14';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3501,25 +3502,18 @@ function sampleErrColors(s){
   const hard=s.error&&!s.error.soft;
   return hard?{b:'#c0392b',bg:'#fdecea',t:'#922',icon:'⛔'}:{b:'#b8860b',bg:'#fff8e1',t:'#7a5c00',icon:'⚠️'};
 }
-function scrollToReport(label, opts){
-  opts=opts||{};
-  const i=SAMPLES.findIndex(s=>s.label===label);
-  if(i<0) return;
-  const wrap=document.getElementById('reportWrap'+i);
-  if(!wrap) return;
-  const panel=document.getElementById('panel');
-  const gap=16;
-  const wrapTop=wrap.getBoundingClientRect().top+window.scrollY;
-  const panelBottom=panel?panel.getBoundingClientRect().bottom:80;
-  window.scrollTo({top:Math.max(0, wrapTop-panelBottom-gap), behavior:'smooth'});
-  wrap.classList.add('report-flash');
-  setTimeout(()=>wrap.classList.remove('report-flash'),1600);
-  if(!opts.keepModal) closeSampleError();
+function sampleIndexForLabel(label){
+  const t=String(label||'').trim();
+  if(!t) return -1;
+  let i=SAMPLES.findIndex(s=>s.label===t);
+  if(i>=0) return i;
+  return SAMPLES.findIndex(s=>String(s.label).trim()===t);
 }
-function openSampleError(label){
-  const s=SAMPLES.find(x=>x.label===label);
-  if(!s||!s.error) return;
-  scrollToReport(label, {keepModal:true});
+function panelViewportBottom(){
+  const panel=document.getElementById('panel');
+  return panel?panel.getBoundingClientRect().bottom:80;
+}
+function showSampleErrorModal(s){
   const col=sampleErrColors(s);
   document.getElementById('sampleErrTitle').textContent=s.label;
   document.getElementById('sampleErrBody').innerHTML=`
@@ -3527,8 +3521,41 @@ function openSampleError(label){
       ${col.icon} <b>${s.error.code}</b> — ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
     </div>
     ${buildSampleErrControls(s)}`;
-  const m=document.getElementById('sampleErrModal');
-  m.style.display='flex';
+  document.getElementById('sampleErrModal').style.display='flex';
+}
+function scrollToReportIndex(i, opts){
+  opts=opts||{};
+  if(i<0||i>=SAMPLES.length) return;
+  const wrap=document.getElementById('reportWrap'+i);
+  if(!wrap) return;
+  if(typeof collapsePanelForReport==='function') collapsePanelForReport();
+  document.querySelectorAll('.report-wrap.report-jump-target').forEach(el=>el.classList.remove('report-jump-target'));
+  wrap.classList.add('report-jump-target');
+  const jump=()=>{
+    const gap=16;
+    const top=window.pageYOffset+wrap.getBoundingClientRect().top-panelViewportBottom()-gap;
+    window.scrollTo({top:Math.max(0,top), behavior:'smooth'});
+    wrap.classList.add('report-flash');
+    setTimeout(()=>wrap.classList.remove('report-flash'),2200);
+  };
+  requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(jump,100)));
+  if(!opts.keepModal) closeSampleError();
+}
+function scrollToReport(label, opts){
+  scrollToReportIndex(sampleIndexForLabel(label), opts);
+}
+function openSampleErrorByIndex(i){
+  const s=SAMPLES[i];
+  if(!s||!s.error) return;
+  scrollToReportIndex(i, {keepModal:true});
+  setTimeout(()=>showSampleErrorModal(s), 450);
+}
+function openSampleError(label){
+  const i=sampleIndexForLabel(label);
+  const s=i>=0?SAMPLES[i]:null;
+  if(!s||!s.error) return;
+  scrollToReportIndex(i, {keepModal:true});
+  setTimeout(()=>showSampleErrorModal(s), 450);
 }
 function closeSampleError(){ document.getElementById('sampleErrModal').style.display='none'; }
 function revealPicker(btn){
@@ -3704,8 +3731,11 @@ function renderWarnings(){
 function rawPreviewHTML(){
   if(!RAW_GRID.length) return '';
   const lc=RAW_LABEL_COL>=0?RAW_LABEL_COL:(RAW_GRID[RAW_HEADERROW]||[]).findIndex(c=>/solution label/i.test(String(c)));
-  const errByLabel={};
-  SAMPLES.forEach(s=>{ if(s.error) errByLabel[s.label]=s.error; });
+  const labelToIdx={};
+  SAMPLES.forEach((s,i)=>{
+    labelToIdx[s.label]=i;
+    labelToIdx[String(s.label).trim()]=i;
+  });
   const bad=SAMPLES.filter(s=>s.error);
   const hard=bad.filter(s=>!s.error.soft).length;
   const tdR='border:1px solid #ccc;padding:2px 6px;font-size:10px;white-space:nowrap';
@@ -3714,15 +3744,17 @@ function rawPreviewHTML(){
     const isHdr=r.some(c=>/solution label/i.test(String(c)));
     let st=isHdr?thR:tdR;
     const lbl=(!isHdr&&lc>=0)?String(r[lc]||'').trim():'';
-    const err=lbl?errByLabel[lbl]:null;
+    let idx=lbl?labelToIdx[lbl]:null;
+    if(idx==null&&lbl) idx=SAMPLES.findIndex(s=>String(s.label).trim()===lbl);
+    const err=idx!=null&&idx>=0?SAMPLES[idx].error:null;
     let trAttr='';
     if(err){
       st+=(!err.soft?';background:#fdecea':';background:#fff8e1');
-      trAttr=` class="raw-err-row" onclick="openSampleError(${JSON.stringify(lbl)})" title="Click to review and fix this sample"`;
+      trAttr=idx!=null?` class="raw-err-row" onclick="openSampleErrorByIndex(${idx})" title="Click to jump to this sample's report and fix"`:'';
     }
     return `<tr${trAttr}>`+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
   }).join('');
-  const hint=bad.length?`<div class="raw-err-hint">${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention — click a highlighted row in the table to fix.</div>`:'';
+  const hint=bad.length?`<div class="raw-err-hint">${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention — click a highlighted row to jump to that report and fix.</div>`:'';
   return `<div class="raw-preview" style="margin-top:10px">
      <div style="color:#9aa6ad;font-size:11px;letter-spacing:.3px;text-transform:uppercase;margin-bottom:1px">Source instrument: Agilent ICP-OES 5800</div>
      <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
@@ -5063,8 +5095,6 @@ loadTrackerHandle();
   if(!panel||!handle) return;
   let offset=0, startY=0, startOffset=0, dragging=false;
   function maxUp(){ return Math.max(0, panel.offsetHeight-46); } // keep the handle on screen
-  // translateY slides the panel up; the matching negative margin pulls the reports up
-  // with it (couples the page to the drag) until it's tucked away as an overlay.
   function apply(){ panel.style.transform = offset ? 'translateY('+offset+'px)' : '';
     panel.style.marginBottom = offset ? offset+'px' : ''; }
   function move(y){ const dy=y-startY; offset=Math.min(0, Math.max(-maxUp(), startOffset+dy)); apply(); }
@@ -5079,6 +5109,12 @@ loadTrackerHandle();
   window.addEventListener('mouseup',up);
   window.addEventListener('touchend',up);
   handle.addEventListener('dblclick',()=>{ offset=0; apply(); });
+  // slide panel up so reports below are visible when jumping from a raw-data row
+  window.collapsePanelForReport=function(){
+    offset=-maxUp();
+    apply();
+  };
+  window.resetPanelPosition=function(){ offset=0; apply(); };
 })();
 
 // One-time: give pre-existing sample types the default heavy metals so their reports
