@@ -2424,7 +2424,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.6';   // bump on each release
+const APP_VERSION='v5.15.7';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5742,7 +5742,8 @@ function importLibrary(ev){
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
-global.trkCatalogKeyForType=trackerCatalogKey;
+function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
+(typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 
 function catalogTypeName(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
