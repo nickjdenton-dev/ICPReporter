@@ -1374,16 +1374,41 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      row 2 down, and a range of 4999 categories against 16 points makes Excel
      spread the categories over the full width — the data ends up crushed into
      the left edge of the plot with no axis labels. */
-  function chartXml(product, element, helper, block, lastRow) {
+  // Y-axis bounds: snug around limits/outliers so charts aren't zoomed out to zero.
+  function axisBoundsForElement(pts, bands) {
+    if (!pts || !pts.length) return null;
+    const band = bandsOf(bands);
+    const vals = [];
+    pts.forEach(p => {
+      if (p.measured != null && isFinite(p.measured)) vals.push(p.measured);
+      if (p.claim != null && isFinite(p.claim)) {
+        vals.push(p.claim);
+        vals.push(round4(p.claim * band.warnLo));
+        vals.push(round4(p.claim * band.warnHi));
+        vals.push(round4(p.claim * band.limitLo));
+        vals.push(round4(p.claim * band.limitHi));
+      }
+    });
+    if (!vals.length) return null;
+    let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (lo === hi) { const b = Math.max(Math.abs(lo) * 0.05, 0.05); lo -= b; hi += b; }
+    const span = hi - lo, pad = Math.max(span * 0.06, 0.02);
+    return { min: round4(lo - pad), max: round4(hi + pad) };
+  }
+  function valAxScaling(yBounds) {
+    if (!yBounds) return '<scaling><orientation val="minMax"/></scaling>';
+    return '<scaling><orientation val="minMax"/><min val="' + yBounds.min + '"/><max val="' + yBounds.max + '"/></scaling>';
+  }
+  function chartXml(product, element, helper, block, lastRow, yBounds) {
     const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
     const cDate = colName(base + 1), cMeas = colName(base + 2), cClaim = colName(base + 3);
     const cWarnLo = colName(base + 4), cWarnHi = colName(base + 5);
     const cLimLo = colName(base + 6), cLimHi = colName(base + 7);
     const s = (i, col, color, dashed, marker) => series(i, helper, cDate, col, color, dashed, last, marker);
+    const yScale = valAxScaling(yBounds);
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
       + titleEl(product + ' - ' + element)
-      // reference lines first so the measured trend draws on top of them
       + '<plotArea><lineChart><grouping val="standard"/>'
       + s(0, cLimLo, COLOR.limit, true, false)
       + s(1, cLimHi, COLOR.limit, true, false)
@@ -1392,15 +1417,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       + s(4, cClaim, COLOR.claim, false, false)
       + s(5, cMeas, COLOR.measured, false, true)
       + '<axId val="10"/><axId val="100"/></lineChart>'
-      // The category axis must sit at the BOTTOM, and both axes need delete="0"
-      // plus a tick-label position — without them Excel draws the plot with no
-      // dates along the bottom and no scale up the side.
       + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling>'
       + '<delete val="0"/><axPos val="b"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
       + '<crossAx val="100"/><crosses val="autoZero"/><auto val="1"/><lblAlgn val="ctr"/>'
       + '<lblOffset val="100"/><noMultiLvlLbl val="0"/></catAx>'
-      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling>'
+      + '<valAx><axId val="100"/>' + yScale
       + '<delete val="0"/><axPos val="l"/><majorGridlines/>'
       + '<numFmt formatCode="General" sourceLinked="1"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
@@ -1671,8 +1693,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         let anchors = '';
         for (let k = 0; k < keep.length && k < charts.length; k++) {
           if (!charts[k]) continue;
-          const n = (points[keep[k].toLowerCase()] || []).length;
-          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1));
+          const elKey = keep[k].toLowerCase();
+          const n = (points[elKey] || []).length;
+          const yBounds = axisBoundsForElement(points[elKey] || [], bands);
+          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1, yBounds));
           anchors += anchor(k, ids[k]);
           out.retargeted++;
         }
@@ -1838,9 +1862,41 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .dl-item{display:block;width:100%;text-align:left;border:0;background:#fff;padding:9px 14px;
            font-size:13px;cursor:pointer;color:#333}
   .dl-item:hover{background:#e9f1f8}
-  /* finalized reports lock text + layout, but the λ picker stays available to everyone */
-  #reports.finalized .lockbtn{pointer-events:none}
-  #reports.finalized [id^="layoutP"],#reports.finalized .layout-gear{display:none!important}
+  /* finalized: report text locked; per-report lock + gear stay usable */
+  #reports.finalized .report[contenteditable="true"]{outline:1px dashed #b8860b;outline-offset:2px}
+  .layout-gear{position:absolute;top:10px;right:48px;background:rgba(90,107,123,.14);border:1px solid #c2c8cf;
+    border-radius:3px;padding:4px 7px;cursor:pointer;line-height:0;opacity:.55;color:#41576e}
+  .layout-gear:hover{opacity:1;background:#eaf1f8;border-color:#0f4c81;color:#0f4c81}
+  /* lab-style modals & data tables */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(15,40,65,.28);z-index:200;display:none;
+    align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto}
+  .modal-backdrop.open{display:flex}
+  .modal-panel{background:#fff;border:1px solid #b8c4cf;border-radius:4px;
+    box-shadow:0 10px 36px rgba(15,40,65,.16);width:100%;position:relative}
+  .modal-hdr{display:flex;align-items:center;gap:10px;padding:9px 12px;background:linear-gradient(#f6f9fc,#eef3f8);
+    border-bottom:1px solid #c2c8cf}
+  .modal-hdr h2,.modal-hdr h3{margin:0;font-size:14px;font-weight:600;color:#0f4c81;letter-spacing:.02em}
+  .modal-x{margin-left:auto;width:26px;height:26px;flex-shrink:0;border:1px solid #aab4bf;background:#fff;
+    border-radius:2px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+    color:#4a5d70;padding:0;line-height:0}
+  .modal-x:hover{background:#eaf1f8;border-color:#0f4c81;color:#0f4c81}
+  .modal-body{padding:12px 14px 14px;font-size:13px}
+  .lab-table{width:100%;border-collapse:collapse;font-size:12px}
+  .lab-table th,.lab-table td{border:1px solid #c2c8cf;padding:5px 8px;text-align:left;vertical-align:middle}
+  .lab-table th{background:#e4ebf2;font-weight:600;color:#2a4058;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  .lab-table tbody tr:nth-child(even){background:#f8fafc}
+  .lab-table input,.lab-table select,.lab-field input,.lab-field select{
+    padding:4px 6px;border:1px solid #aab4bf;border-radius:2px;font-size:12px;font-family:inherit}
+  .lab-field label{display:block;font-size:10.5px;font-weight:600;color:#4a5d70;text-transform:uppercase;
+    letter-spacing:.04em;margin-bottom:3px}
+  .lab-chk{display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px;cursor:pointer}
+  .lab-chk input{margin:0}
+  .lab-note{font-size:11px;color:#6a7886;line-height:1.45}
+  .lab-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  button.act.lab-sm,button.sec.lab-sm{font-size:12px;padding:5px 11px;border-radius:2px}
+  .lab-section{margin-bottom:14px}
+  .lab-section-title{font-size:11px;font-weight:600;color:#0f4c81;text-transform:uppercase;letter-spacing:.05em;
+    margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid #dde4ea}
   .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
   .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
   #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
@@ -1968,25 +2024,26 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <div id="reports"></div>
 
-<div id="sampleErrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:205;overflow:auto;padding:16px;align-items:flex-end;justify-content:center">
-  <div style="background:#fff;max-width:520px;width:min(520px,96vw);margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 8px 32px rgba(0,0,0,.28);max-height:min(70vh,520px);overflow-y:auto">
-    <div style="display:flex;align-items:flex-start;margin-bottom:10px;gap:10px">
+<div id="sampleErrModal" class="modal-backdrop" style="z-index:205;align-items:flex-end" onclick="if(event.target===this)closeSampleError()">
+  <div class="modal-panel" style="max-width:520px;width:min(520px,96vw);max-height:min(70vh,520px);overflow-y:auto;margin-top:auto;margin-bottom:16px">
+    <div class="modal-hdr">
       <div style="flex:1;min-width:0">
-        <h2 style="margin:0 0 4px;color:#0f4c81;font-size:18px">Sample needs attention</h2>
-        <div id="sampleErrTitle" style="font-size:13px;color:#666;word-break:break-word"></div>
+        <h2 style="font-size:15px">Sample needs attention</h2>
+        <div id="sampleErrTitle" class="lab-note" style="margin-top:2px;word-break:break-word"></div>
       </div>
-      <button class="act sec" onclick="closeSampleError()">Close</button>
+      <button type="button" class="modal-x" onclick="closeSampleError()" title="Close" aria-label="Close">&times;</button>
     </div>
-    <div id="sampleErrBody"></div>
+    <div class="modal-body" id="sampleErrBody"></div>
   </div>
 </div>
 
-<div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:820px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;margin-bottom:6px">
-      <h2 style="margin:0;color:#0f4c81">Paste from instrument</h2>
-      <button class="act sec" style="margin-left:auto" onclick="closePaste()">Close</button>
+<div id="pasteModal" class="modal-backdrop" onclick="if(event.target===this)closePaste()">
+  <div class="modal-panel" style="max-width:820px">
+    <div class="modal-hdr">
+      <h2>Paste from instrument</h2>
+      <button type="button" class="modal-x" onclick="closePaste()" title="Close" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body">
     <div style="font-size:13px;color:#555;margin-bottom:10px">
       In the instrument's analysis tab (ICP Expert), select the whole results grid (including the
       <b>Solution Label</b> header row), copy it (<b>Ctrl+C</b>), then click in the box below and paste (<b>Ctrl+V</b>).
@@ -2000,15 +2057,17 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act sec" onclick="clearPaste()">Clear</button>
       <span id="pasteMsg" style="font-size:12px;color:#c0392b"></span>
     </div>
+    </div>
   </div>
 </div>
 
-<div id="trackerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:420;overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:660px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;margin-bottom:8px">
-      <h2 style="margin:0;color:#0f4c81">Commit to Tracker</h2>
-      <button class="act sec" style="margin-left:auto" onclick="closeTracker()">Close</button>
+<div id="trackerModal" class="modal-backdrop" style="z-index:420" onclick="if(event.target===this)closeTracker()">
+  <div class="modal-panel" style="max-width:660px">
+    <div class="modal-hdr">
+      <h2>Commit to Tracker</h2>
+      <button type="button" class="modal-x" onclick="closeTracker()" title="Close" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body">
     <div style="font-weight:bold;color:#0f4c81;font-size:13px;margin-bottom:5px">Select which samples to track</div>
     <div style="border:1px solid #ddd;border-radius:5px;max-height:230px;overflow:auto">
       <label style="display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid #eee;background:#f6f8fa;font-weight:bold;font-size:13px">
@@ -2059,21 +2118,44 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <b>Only finalized data should be committed for tracking.</b> Committed rows are appended to the
       shared tracker workbook and become part of your organization's QC trend record.
     </div>
+    </div>
   </div>
 </div>
 
-<div id="catalogModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;
-     overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:880px;margin:0 auto;border-radius:8px;padding:22px 26px;
-       box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;margin-bottom:6px">
-      <h2 style="margin:0;color:#0f4c81">Sample Types &amp; Label Claims</h2>
-      <button class="act sec" style="margin-left:auto" onclick="closeCatalog()">Close</button>
+<div id="reportLayoutModal" class="modal-backdrop" onclick="if(event.target===this)closeReportLayout()">
+  <div class="modal-panel" style="max-width:460px">
+    <div class="modal-hdr">
+      <h2 id="reportLayoutTitle">Report settings</h2>
+      <button type="button" class="modal-x" onclick="closeReportLayout()" title="Close" aria-label="Close">&times;</button>
     </div>
-    <div id="catalogList" style="font-size:13px"></div>
-    <hr style="margin:18px 0;border:none;border-top:1px solid #ddd">
-    <h3 style="margin:0 0 10px;color:#0f4c81" id="addTitle">Add new sample type</h3>
+    <div class="modal-body">
+      <div class="lab-section">
+        <div class="lab-section-title">Sample type</div>
+        <div class="lab-field">
+          <select id="reportLayoutType" style="width:100%" onchange="reportLayoutChooseType(this.value)"></select>
+        </div>
+        <div class="lab-note" style="margin-top:5px">Re-reads the loaded file and rebuilds this report's tables.</div>
+      </div>
+      <div class="lab-section">
+        <div class="lab-section-title">Tables on this report</div>
+        <div id="reportLayoutTables"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="catalogModal" class="modal-backdrop" onclick="if(event.target===this)closeCatalog()">
+  <div class="modal-panel" style="max-width:920px">
+    <div class="modal-hdr">
+      <h2>Sample Types &amp; Label Claims</h2>
+      <button type="button" class="modal-x" onclick="closeCatalog()" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+    <div id="catalogList"></div>
+    <hr style="margin:16px 0;border:none;border-top:1px solid #dde4ea">
+    <h3 id="addTitle" style="margin:0 0 8px;font-size:13px;font-weight:600;color:#0f4c81">Add new sample type</h3>
     <div id="addForm"></div>
+    </div>
   </div>
 </div>
 
@@ -2095,15 +2177,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<div id="logModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:210;
-     overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:920px;margin:0 auto;border-radius:8px;padding:22px 26px;
-       box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <h2 style="margin:0;color:#0f4c81">Activity Log</h2>
-      <span id="logCount" style="font-size:12px;color:#777"></span>
-      <button class="act sec" style="margin-left:auto" onclick="closeLog()">Close</button>
+<div id="logModal" class="modal-backdrop" style="z-index:210" onclick="if(event.target===this)closeLog()">
+  <div class="modal-panel" style="max-width:920px">
+    <div class="modal-hdr">
+      <h2>Activity Log</h2>
+      <span id="logCount" class="lab-note"></span>
+      <button type="button" class="modal-x" onclick="closeLog()" title="Close" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body">
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px">
       <button class="act" onclick="exportLog()">Export .txt</button>
       <button class="act sec" onclick="clearLog()">Clear log</button>
@@ -2112,21 +2193,24 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     </div>
     <div id="logView" style="font-family:Consolas,monospace;font-size:12px;background:#fafafa;border:1px solid #ddd;
          border-radius:5px;padding:10px;max-height:60vh;overflow:auto;white-space:pre-wrap"></div>
+    </div>
   </div>
 </div>
 
-<div id="bugModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:230;overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;margin-bottom:8px">
-      <h2 style="margin:0;color:#0f4c81">Report a bug</h2>
-      <button class="act sec" style="margin-left:auto" onclick="closeBug()">Close</button>
+<div id="bugModal" class="modal-backdrop" style="z-index:230" onclick="if(event.target===this)closeBug()">
+  <div class="modal-panel" style="max-width:520px">
+    <div class="modal-hdr">
+      <h2>Report a bug</h2>
+      <button type="button" class="modal-x" onclick="closeBug()" title="Close" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body">
     <div style="font-size:13px;color:#666;margin-bottom:10px">Describe what happened. Your current session's activity log is automatically included and sent to the developers to help diagnose the issue.</div>
     <textarea id="bugText" placeholder="What were you doing? What went wrong? What did you expect?"
        style="width:100%;height:130px;padding:9px;border:1px solid #aaa;border-radius:5px;font-size:13px;resize:vertical"></textarea>
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
       <button class="act" onclick="submitBug()">Send to developers</button>
       <span id="bugMsg" style="font-size:13px;color:#0f4c81"></span>
+    </div>
     </div>
   </div>
 </div>
@@ -2162,11 +2246,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   </div>
 </div>
 
-<div id="authModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:420;overflow:auto">
-  <div style="background:#fff;max-width:380px;margin:18vh auto;border-radius:10px;padding:22px 26px;
-       box-shadow:0 8px 40px rgba(0,0,0,.4)">
-    <h3 style="margin:0 0 6px;color:#0f4c81">🔒 Confirm your password</h3>
-    <div style="font-size:13px;color:#666;margin-bottom:12px">This change requires re-authentication: <b id="authLabel"></b></div>
+<div id="authModal" class="modal-backdrop" style="z-index:430" onclick="if(event.target===this)cancelAuth()">
+  <div class="modal-panel" style="max-width:380px;margin-top:12vh">
+    <div class="modal-hdr">
+      <h2>Confirm password</h2>
+      <button type="button" class="modal-x" onclick="cancelAuth()" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+    <div class="lab-note" style="margin-bottom:10px">This change requires re-authentication: <b id="authLabel"></b></div>
     <input id="authPass" type="password" placeholder="Password" style="width:100%;padding:9px;margin-bottom:12px;border:1px solid #aaa;border-radius:5px"
        onkeydown="if(event.key==='Enter')submitAuth()">
     <div style="display:flex;gap:8px">
@@ -2174,15 +2261,17 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act sec" onclick="cancelAuth()">Cancel</button>
     </div>
     <div id="authErr" style="color:#c0392b;font-size:13px;margin-top:10px;min-height:16px"></div>
+    </div>
   </div>
 </div>
 
-<div id="usersModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:410;overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;margin-bottom:10px">
-      <h2 style="margin:0;color:#0f4c81">Users</h2>
-      <button class="act sec" style="margin-left:auto" onclick="closeUsers()">Close</button>
+<div id="usersModal" class="modal-backdrop" style="z-index:410" onclick="if(event.target===this)closeUsers()">
+  <div class="modal-panel" style="max-width:520px">
+    <div class="modal-hdr">
+      <h2>Users</h2>
+      <button type="button" class="modal-x" onclick="closeUsers()" title="Close" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body">
     <div id="usersList" style="font-size:13px;margin-bottom:14px"></div>
     <hr style="border:none;border-top:1px solid #ddd;margin:10px 0">
     <h3 style="margin:0 0 8px;color:#0f4c81">Add user</h3>
@@ -2216,32 +2305,37 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         <span id="autoBackupStatus" style="font-size:12px;color:#666"></span>
       </div>
     </div>
+    </div>
   </div>
 </div>
 
-<div id="masterModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:215;overflow:auto;padding:24px">
-  <div style="background:#fff;max-width:960px;margin:0 auto;border-radius:8px;padding:20px 24px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <h2 style="margin:0;color:#0f4c81">Master Report Template</h2>
-      <button class="act" onclick="saveMaster()">Save changes</button>
-      <label class="act sec" style="cursor:pointer">Change logo
+<div id="masterModal" class="modal-backdrop" style="z-index:215" onclick="if(event.target===this)closeMaster()">
+  <div class="modal-panel" style="max-width:960px">
+    <div class="modal-hdr">
+      <h2>Master Report Template</h2>
+      <button class="act lab-sm" onclick="saveMaster()">Save</button>
+      <label class="act sec lab-sm" style="cursor:pointer;display:inline-flex;align-items:center">Logo
         <input id="masterLogoInput" type="file" accept="image/*" style="display:none" onchange="changeMasterLogo(event)"></label>
-      <button class="act sec" style="margin-left:auto" onclick="closeMaster()">Close</button>
+      <button type="button" class="modal-x" onclick="closeMaster()" title="Close" aria-label="Close">&times;</button>
     </div>
-    <div style="font-size:12px;color:#777;margin-bottom:10px">Click any highlighted field to edit it. Changes apply to <b>all</b> reports once saved. (Data rows shown are examples only.)</div>
+    <div class="modal-body">
+    <div class="lab-note" style="margin-bottom:10px">Click any highlighted field to edit it. Changes apply to <b>all</b> reports once saved.</div>
     <div id="masterControls" style="margin-bottom:10px"></div>
-    <div id="masterView" style="background:#eef0f2;padding:18px;border-radius:6px;display:flex;justify-content:center"></div>
+    <div id="masterView" style="background:#eef0f2;padding:18px;border-radius:4px;display:flex;justify-content:center"></div>
+    </div>
   </div>
 </div>
 
 <script>
-const APP_VERSION='v5.14';   // bump on each release
+const APP_VERSION='v5.15';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
 const ICO_TRASH='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M3.8 4l.7 9.2h7l.7-9.2"/><path d="M6.6 6.6v4M9.4 6.6v4"/></svg>';
 const ICO_LOCK='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>';
 const ICO_UNLOCK='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 014.9-.6"/></svg>';
+const ICO_X='<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+const ICO_GEAR='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M3.3 12.7l1.1-1.1M11.6 4.4l1.1-1.1"/></svg>';
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -2409,7 +2503,7 @@ function addLog(cat,msg,data){
     arr=arr.slice(Math.floor(arr.length*0.2));
     try{localStorage.setItem(LOG_KEY, JSON.stringify(arr));}catch(_){}
   }
-  if(document.getElementById('logModal')&&document.getElementById('logModal').style.display==='block') renderLog();
+  if(document.getElementById('logModal')&&document.getElementById('logModal').classList.contains('open')) renderLog();
 }
 function fmtTS(iso){ const d=new Date(iso); return isNaN(d)?iso:d.toLocaleString('en-US'); }
 function logLine(e){
@@ -2424,8 +2518,8 @@ function renderLog(){
   const view=document.getElementById('logView');
   view.textContent = arr.length ? arr.slice().reverse().map(logLine).join('\n\n') : 'No activity recorded yet.';
 }
-function openLog(){ renderLog(); document.getElementById('logModal').style.display='block'; }
-function closeLog(){ document.getElementById('logModal').style.display='none'; }
+function openLog(){ renderLog(); document.getElementById('logModal').classList.add('open'); }
+function closeLog(){ document.getElementById('logModal').classList.remove('open'); }
 function setRetention(){
   const v=parseInt(document.getElementById('logRetention').value);
   if(v>0){ localStorage.setItem(LOG_RET_KEY, v); addLog('SETTING','Log retention set to '+v+' days'); renderLog(); }
@@ -2468,8 +2562,8 @@ async function exportLog(){
    confirmation email FormSubmit sends to that address (click once to activate).
    ===================================================================== */
 const BUG_ENDPOINT='https://formsubmit.co/ajax/'+atob('Y3Nhc3BhZ3lyaWFAZ21haWwuY29t');
-function openBug(){ document.getElementById('bugText').value=''; document.getElementById('bugMsg').textContent=''; document.getElementById('bugModal').style.display='block'; setTimeout(()=>document.getElementById('bugText').focus(),50); }
-function closeBug(){ document.getElementById('bugModal').style.display='none'; }
+function openBug(){ document.getElementById('bugText').value=''; document.getElementById('bugMsg').textContent=''; document.getElementById('bugModal').classList.add('open'); setTimeout(()=>document.getElementById('bugText').focus(),50); }
+function closeBug(){ document.getElementById('bugModal').classList.remove('open'); }
 function buildBugReport(comments){
   const arr=loadLog();
   const logText=arr.map(logLine).join('\n\n');
@@ -2595,18 +2689,18 @@ function requireAuth(label,cb){
   _authCb=cb;
   document.getElementById('authLabel').textContent=label;
   document.getElementById('authPass').value=''; document.getElementById('authErr').textContent='';
-  document.getElementById('authModal').style.display='block';
+  document.getElementById('authModal').classList.add('open');
   setTimeout(()=>document.getElementById('authPass').focus(),50);
 }
 function submitAuth(){
   const pw=val('authPass'), label=document.getElementById('authLabel').textContent;
   if(verifyCreds(CURRENT_USER,pw)){
-    document.getElementById('authModal').style.display='none';
+    document.getElementById('authModal').classList.remove('open');
     addLog('AUTH','Re-authenticated for: '+label+' — user "'+CURRENT_USER+'"');
     const cb=_authCb; _authCb=null; if(cb) cb();
   }else{ document.getElementById('authErr').textContent='❌ Incorrect password.'; addLog('AUTH','Failed re-auth for: '+label); }
 }
-function cancelAuth(){ document.getElementById('authModal').style.display='none'; _authCb=null; }
+function cancelAuth(){ document.getElementById('authModal').classList.remove('open'); _authCb=null; }
 // admin-gated action: denied outright for non-admins, otherwise password-confirmed
 function requireAdmin(label,cb){
   if(!isAdmin()){
@@ -2618,8 +2712,8 @@ function requireAdmin(label,cb){
 }
 // user management
 function openUsers(){ requireAdmin('manage users', _openUsers); }
-function _openUsers(){ renderUsers(); updateAutoBackupUI(); document.getElementById('usersMsg').textContent=''; document.getElementById('usersModal').style.display='block'; }
-function closeUsers(){ document.getElementById('usersModal').style.display='none'; }
+function _openUsers(){ renderUsers(); updateAutoBackupUI(); document.getElementById('usersMsg').textContent=''; document.getElementById('usersModal').classList.add('open'); }
+function closeUsers(){ document.getElementById('usersModal').classList.remove('open'); }
 function renderUsers(){
   const users=loadUsers();
   const item='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #eee';
@@ -2840,7 +2934,7 @@ function _openMaster(){
   _templateBackup=JSON.parse(JSON.stringify(TEMPLATE));   // for Cancel
   renderMasterControls();
   renderMasterPreview();
-  document.getElementById('masterModal').style.display='block';
+  document.getElementById('masterModal').classList.add('open');
   addLog('TEMPLATE','Opened master template editor');
 }
 function renderMasterControls(){
@@ -2879,7 +2973,7 @@ function captureInlineEdits(){
 }
 function closeMaster(){
   if(_templateBackup){ TEMPLATE=_templateBackup; _templateBackup=null; }   // Cancel = revert
-  _pendingLogo=null; document.getElementById('masterModal').style.display='none';
+  _pendingLogo=null; document.getElementById('masterModal').classList.remove('open');
 }
 function changeMasterLogo(ev){
   const f=ev.target.files[0]; if(!f) return;
@@ -2897,7 +2991,7 @@ function _saveMaster(){
   addLog('TEMPLATE','Saved master template'+(_pendingLogo?' (logo changed)':''), TEMPLATE);
   _templateBackup=null; _pendingLogo=null;
   if(typeof SAMPLES!=='undefined' && SAMPLES.length){ clearReportBodies(); render({preserveEdits:false}); }
-  document.getElementById('masterModal').style.display='none';
+  document.getElementById('masterModal').classList.remove('open');
 }
 
 /* =====================================================================
@@ -3521,7 +3615,7 @@ function showSampleErrorModal(s){
       ${col.icon} <b>${s.error.code}</b> — ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
     </div>
     ${buildSampleErrControls(s)}`;
-  document.getElementById('sampleErrModal').style.display='flex';
+  document.getElementById('sampleErrModal').classList.add('open');
 }
 function scrollToReportIndex(i, opts){
   opts=opts||{};
@@ -3557,7 +3651,7 @@ function openSampleError(label){
   scrollToReportIndex(i, {keepModal:true});
   setTimeout(()=>showSampleErrorModal(s), 450);
 }
-function closeSampleError(){ document.getElementById('sampleErrModal').style.display='none'; }
+function closeSampleError(){ document.getElementById('sampleErrModal').classList.remove('open'); }
 function revealPicker(btn){
   const box=btn.parentNode;
   box.querySelectorAll('button').forEach(b=>b.style.display='none');
@@ -3589,9 +3683,7 @@ function chooseType(label,val){
 }
 
 // toggle a single report between locked (view-only) and unlocked (editable).
-// Both directions require a password: unlock to edit, lock to save changes.
 function toggleLock(btn){
-  if(FINALIZED){ alert('Reports are finalized.\n\nUse "Unlock All Reports" above the reports to edit them.'); return; }
   const rep=btn.closest('.report');
   const willEdit = rep.getAttribute('contenteditable')!=='true';
   requireAdmin(willEdit?'unlock report for editing':'lock report & save changes',
@@ -3603,8 +3695,26 @@ function _applyLock(btn, willEdit){
   btn.innerHTML = willEdit?ICO_UNLOCK:ICO_LOCK;
   btn.style.opacity = willEdit?'0.8':'0.45';
   btn.title = willEdit?'Editing unlocked — click to lock':'Locked — click to unlock editing';
-  if(!willEdit) captureReportBodies();   // persist manual edits when locking
+  if(!willEdit) captureReportBodies();
+  if(willEdit){
+    FINALIZED=false;
+    USER_UNLOCKED=true;
+    document.getElementById('reports').classList.remove('finalized');
+  }
+  updateFinalizeBar();
   addLog('REPORT', willEdit?'Report unlocked for editing':'Report locked — changes saved');
+}
+function setAllReportsLocked(locked){
+  document.querySelectorAll('#reports .report').forEach(rep=>{
+    rep.setAttribute('contenteditable', locked?'false':'true');
+    const btn=rep.querySelector('.lockbtn');
+    if(btn){
+      btn.innerHTML=locked?ICO_LOCK:ICO_UNLOCK;
+      btn.style.opacity=locked?'0.45':'0.8';
+      btn.title=locked?'Locked — click to unlock editing':'Editing unlocked — click to lock';
+    }
+  });
+  if(locked) captureReportBodies();
 }
 
 function sampleTableVis(s){
@@ -3670,7 +3780,8 @@ function reportHTML(s,idx){
 
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">${ICO_LOCK}</button>` : '';
-  const layout = (isAdmin() && idx!=null) ? layoutPanel(s,idx) : '';
+  const layout = (isAdmin() && idx!=null)
+    ? `<button class="layout-gear no-export" contenteditable="false" onclick="openReportLayout(${i})" title="Report settings — sample type &amp; visible tables">${ICO_GEAR}</button>` : '';
   return `<div class="report" contenteditable="false">
     ${lockBtn}
     ${layout}
@@ -3884,7 +3995,6 @@ function render(opts){
     </div>`).join('');
   document.getElementById('toolbar').style.display='flex';
   document.getElementById('panelHandle').style.display='flex';
-  OPEN_LAYOUT.forEach(i=>{ const p=document.getElementById('layoutP'+i); if(p) p.style.display='block'; });
   if(preserve) applyReportBodies(skipRestore);
   renderWarnings();
   maybeAutoFinalize();     // lock once nothing needs attention (λ stays editable)
@@ -3892,48 +4002,41 @@ function render(opts){
   showImportNotice();      // and offer to commit
 }
 
-/* ---- per-report layout controls (admin-only, never exported) ---- */
-const OPEN_LAYOUT=new Set();
-function layoutPanel(s,i){
+/* ---- per-report settings popup (sample type + table visibility only) ---- */
+let LAYOUT_REPORT_IDX=null;
+function openReportLayout(i){
+  LAYOUT_REPORT_IDX=i;
+  populateReportLayoutModal(i);
+  document.getElementById('reportLayoutModal').classList.add('open');
+}
+function closeReportLayout(){
+  document.getElementById('reportLayoutModal').classList.remove('open');
+  LAYOUT_REPORT_IDX=null;
+}
+function populateReportLayoutModal(i){
+  const s=SAMPLES[i]; if(!s) return;
+  document.getElementById('reportLayoutTitle').textContent=
+    'Report settings — '+((s.batch?s.batch+' ':'')+(s.type||s.label));
   const st=sampleTableVis(s);
-  const eles=Object.keys(OPTIMUM_WAVELENGTHS).sort();
-  const cb=(k,label)=>`<label style="margin-right:14px"><input type="checkbox" ${st[k]?'checked':''} onclick="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
-  const chips=(s.metalSpecs||[]).map(m=>`<span style="display:inline-block;background:#eef;border:1px solid #ccd;border-radius:10px;padding:1px 8px;margin:2px;font-size:11px">${m.name||m.el} <b style="cursor:pointer;color:#922" onclick="reportRemoveMetal(${i},'${m.el}')">✕</b></span>`).join('');
-  const opts=eles.map(e=>`<option value="${e}">${e}</option>`).join('');
-  // sample-type picker for THIS report (fixes a wrong type without re-importing)
+  const cb=(k,label)=>`<label class="lab-chk"><input type="checkbox" ${st[k]?'checked':''} onchange="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
+  document.getElementById('reportLayoutTables').innerHTML=
+    cb('macro','Macro')+cb('micro','Micro')+cb('heavy','Heavy Metals')+cb('raw','Raw Data Reference');
   const tOpts=typeOptionsHTML(s.type);
   const curOpt = !s.type ? '<option value="" selected>\u2014 none detected \u2014</option>'
                : (tOpts.indexOf(' selected')<0
                     ? `<option value="${String(s.type).replace(/"/g,'&quot;')}" selected>${s.type} (not in catalog)</option>` : '');
   const autoOpt = (TYPE_OVERRIDES[s.label]!==undefined)
     ? '<option value="__auto__">\u21ba Use type from sample label</option>' : '';
-  return `<div id="layoutP${i}" class="no-export" contenteditable="false" style="display:none;border:1px solid #d8c98a;background:#fffdf5;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:12px">
-      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Sample type (this report)</div>
-      <div style="margin-bottom:9px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select onchange='chooseType(${JSON.stringify(s.label)},this.value)' style="padding:3px;font-size:12px;max-width:270px">
-          ${curOpt}${tOpts}
-          <option value="__new__">\u2795 Add new sample type\u2026</option>
-          ${autoOpt}
-        </select>
-        <span style="color:#888;font-size:11px">re-reads the loaded file and rebuilds this report's tables</span>
-      </div>
-      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Show / hide tables (this report)</div>
-      <div style="margin-bottom:8px">${cb('macro','Macro')}${cb('micro','Micro')}${cb('heavy','Heavy Metals')}${cb('raw','Raw Data Ref')}</div>
-      <div style="font-weight:bold;color:#0f4c81;margin-bottom:4px">Heavy metals on this report</div>
-      <div style="margin-bottom:6px">${chips||'<span style="color:#888">none</span>'}</div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Add:
-        <select id="addMetEl${i}" style="padding:3px">${opts}</select>
-        limit % <input id="addMetLim${i}" type="number" step="any" value="0" style="width:80px;padding:3px">
-        <button class="act sec" style="font-size:11px;padding:2px 8px" onclick="reportAddMetal(${i})">Add metal</button>
-      </div></div>
-    <button class="no-export" contenteditable="false" onclick="toggleLayout(${i})" title="Edit this report's layout"
-      style="position:absolute;top:10px;right:48px;background:rgba(120,120,120,.16);border:0;border-radius:6px;padding:3px 8px;font-size:13px;cursor:pointer;opacity:.5">⚙</button>`;
+  document.getElementById('reportLayoutType').innerHTML=
+    curOpt+tOpts+'<option value="__new__">\u2795 Add new sample type\u2026</option>'+autoOpt;
 }
-function toggleLayout(i){
-  const p=document.getElementById('layoutP'+i); if(!p) return;
-  const open = p.style.display!=='block';
-  p.style.display = open?'block':'none';
-  if(open) OPEN_LAYOUT.add(i); else OPEN_LAYOUT.delete(i);
+function reportLayoutChooseType(val){
+  const i=LAYOUT_REPORT_IDX;
+  if(i==null) return;
+  const s=SAMPLES[i]; if(!s) return;
+  if(val==='__new__'){ closeReportLayout(); PENDING_TYPE_LABEL=s.label; openCatalog(); return; }
+  chooseType(s.label, val);
+  setTimeout(()=>{ if(LAYOUT_REPORT_IDX!=null) populateReportLayoutModal(LAYOUT_REPORT_IDX); }, 120);
 }
 function reportTableToggle(i,key,on){
   const s=SAMPLES[i]; if(!s) return;
@@ -3948,26 +4051,7 @@ function reportTableToggle(i,key,on){
     return;
   }
   blocks.forEach(el=>{ el.style.display=on?'':'none'; });
-}
-function reportAddMetal(i){
-  const s=SAMPLES[i]; if(!s) return;
-  const el=document.getElementById('addMetEl'+i).value;
-  const lim=parseFloat(document.getElementById('addMetLim'+i).value)||0;
-  if(s.metalSpecs.some(m=>m.el===el)){ alert(el+' is already in the heavy-metal table.'); return; }
-  s.metalSpecs.push({el, name:(ELEMENT_NAMES[el]?ELEMENT_NAMES[el]+' ('+el+')':el), limit:lim});
-  s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
-  addLog('REPORT',`Added heavy metal ${el} (limit ${lim}%) to report "${s.label}"`);
-  delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
-  render({preserveEdits:true, skipRestore:[i]});
-}
-function reportRemoveMetal(i,el){
-  const s=SAMPLES[i]; if(!s) return;
-  s.metalSpecs=s.metalSpecs.filter(m=>m.el!==el);
-  s.metals=computeMetalRows(s.row, ELEM_COLS, s.metalSpecs, MODE, s.wlOverrides);
-  if(s.fieldOverrides) delete s.fieldOverrides['metal:'+el+':detected'];
-  addLog('REPORT',`Removed heavy metal ${el} from report "${s.label}"`);
-  delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
-  render({preserveEdits:true, skipRestore:[i]});
+  if(LAYOUT_REPORT_IDX===i) populateReportLayoutModal(i);
 }
 
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
@@ -4288,25 +4372,28 @@ function unresolvedCount(){ return (typeof SAMPLES!=='undefined'?SAMPLES:[]).fil
 function applyFinalizeState(){
   const reports=document.getElementById('reports');
   if(reports) reports.classList.toggle('finalized', FINALIZED);
-  document.querySelectorAll('#reports .report').forEach(rep=>{
-    if(FINALIZED) rep.setAttribute('contenteditable','false');
-    const btn=rep.querySelector('.lockbtn');
-    if(btn && FINALIZED){ btn.innerHTML=ICO_LOCK; btn.style.opacity='0.45';
-      btn.title='Finalized — use "Unlock all reports" to edit'; }
-  });
   updateFinalizeBar();
 }
 function toggleFinalize(){
   if(FINALIZED){
     requireAdmin('unlock all reports for editing', ()=>{
-      FINALIZED=false; USER_UNLOCKED=true; applyFinalizeState();
+      FINALIZED=false; USER_UNLOCKED=true;
+      setAllReportsLocked(false);
+      applyFinalizeState();
       addLog('REPORT','All reports unlocked for editing');
     });
     return;
   }
-  if(unresolvedCount()>0) return;              // guarded by the disabled state too
-  FINALIZED=true; USER_UNLOCKED=false; applyFinalizeState();
-  addLog('REPORT','All reports finalized & locked');
+  if(unresolvedCount()>0) return;
+  requireAdmin('lock and finalize all reports', ()=>{
+    FINALIZED=true; USER_UNLOCKED=false;
+    setAllReportsLocked(true);
+    applyFinalizeState();
+    addLog('REPORT','All reports finalized & locked');
+    if(confirm('Reports are locked.\n\nCommit selected samples to the tracker now?')){
+      openTracker(true);
+    }
+  });
 }
 function updateFinalizeBar(){
   const bar=document.getElementById('finalizeBar'); if(!bar) return;
@@ -4460,12 +4547,12 @@ async function setTrackerHandle(h,how){
 // Opens with or without a loaded report: "Import history…" and choosing the
 // tracker file are setup jobs that have nothing to do with today's samples, and
 // requiring raw data to reach them made a one-time migration impossible.
-function openTracker(){
-  if(SAMPLES.length && !FINALIZED
+function openTracker(skipUnfinalizedWarn){
+  if(!skipUnfinalizedWarn && SAMPLES.length && !FINALIZED
      && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
   renderTrackerList(); updateTrackerFileLabel(); renderTrendBands();
   document.getElementById('trkMsg').textContent='';
-  document.getElementById('trackerModal').style.display='block';
+  document.getElementById('trackerModal').classList.add('open');
 }
 function renderTrendBands(){
   const b=loadBands();
@@ -4520,7 +4607,7 @@ async function rebuildTrackerCharts(msg){
     addLog('ERROR','Chart redraw failed: '+m);
   }
 }
-function closeTracker(){ document.getElementById('trackerModal').style.display='none'; }
+function closeTracker(){ document.getElementById('trackerModal').classList.remove('open'); }
 // A sample can only be tracked if its type is a SAVED sample type — the tracker
 // charts by sample type, so an unrecognised type has nothing to trend against.
 function trackable(s){ return !!s.matched; }
@@ -4901,7 +4988,12 @@ async function importTrackerHistory(){
 // finalized -- only report text and the layout controls are locked down.
 function maybeAutoFinalize(){
   if(!SAMPLES.length || FINALIZED || USER_UNLOCKED) return;
-  if(unresolvedCount()===0){ FINALIZED=true; addLog('REPORT','All errors resolved — reports auto-finalized & locked (wavelengths remain editable)'); }
+  if(unresolvedCount()===0){
+    FINALIZED=true;
+    setAllReportsLocked(true);
+    applyFinalizeState();
+    addLog('REPORT','All errors resolved — reports auto-finalized & locked (wavelengths remain editable)');
+  }
 }
 
 /* ---- "imported clean — commit now?" prompt ---- */
@@ -4931,8 +5023,11 @@ function setReportsEditable(edit){
   document.querySelectorAll('#reports .report').forEach(rep=>{
     rep.setAttribute('contenteditable', edit?'true':'false');
     const btn=rep.querySelector('.lockbtn');
-    if(btn){ btn.textContent=edit?'🔓':'🔒'; btn.style.opacity=edit?'0.8':'0.45';
-      btn.title=edit?'Editing unlocked — click to lock':'Locked — click to unlock editing'; }
+    if(btn){
+      btn.innerHTML=edit?ICO_UNLOCK:ICO_LOCK;
+      btn.style.opacity=edit?'0.8':'0.45';
+      btn.title=edit?'Editing unlocked — click to lock':'Locked — click to unlock editing';
+    }
   });
 }
 
@@ -4951,9 +5046,9 @@ document.addEventListener('paste',e=>{
 });
 function pasteBoxEl(){ return document.getElementById('pasteBox'); }
 function clearPaste(){ const b=pasteBoxEl(); b.innerHTML=''; b.setAttribute('data-empty','1'); }
-function openPaste(){ document.getElementById('pasteMsg').textContent=''; document.getElementById('pasteModal').style.display='block';
+function openPaste(){ document.getElementById('pasteMsg').textContent=''; document.getElementById('pasteModal').classList.add('open');
   setTimeout(()=>pasteBoxEl().focus(),50); }
-function closePaste(){ document.getElementById('pasteModal').style.display='none'; }
+function closePaste(){ document.getElementById('pasteModal').classList.remove('open'); }
 // track empty state so the placeholder shows/hides
 document.addEventListener('input',e=>{ if(e.target && e.target.id==='pasteBox'){
   e.target.setAttribute('data-empty', e.target.textContent.trim()||e.target.querySelector('table') ? '0':'1'); }});
@@ -5155,8 +5250,8 @@ function analyteSummary(list){
     return `${a.compound}${conv}${claim}`;
   }).join('; ') || '<i>none</i>';
 }
-function openCatalog(){ EDIT_CONTEXT=null; rebuildEff(); renderCatalogList(); renderAddForm(); document.getElementById('catalogModal').style.display='block'; }
-function closeCatalog(){ document.getElementById('catalogModal').style.display='none'; }
+function openCatalog(){ EDIT_CONTEXT=null; rebuildEff(); renderCatalogList(); renderAddForm(); document.getElementById('catalogModal').classList.add('open'); }
+function closeCatalog(){ document.getElementById('catalogModal').classList.remove('open'); }
 
 // ---- Sample-type library export / import (move specs between devices) ----
 function exportLibrary(){
@@ -5195,43 +5290,45 @@ let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while ed
 
 function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
 
+function catalogTypeName(key){
+  const e=EFF.find(x=>x._aliases[0].key===key);
+  const cs=loadCustom()[key], ms=loadTypeMetals()[key];
+  return (e&&e.names)||(cs&&cs.disp)||(ms&&ms.disp)||key;
+}
 function renderCatalogList(){
   const adm=isAdmin();
   const custom=loadCustom(), tmetals=loadTypeMetals();
-  const tdL='border:1px solid #ddd;padding:6px 9px;text-align:left;vertical-align:top';
-  const thL=tdL+';background:#f2f2f2;font-weight:bold';
-  const actions=(key)=> adm?`<td style="${tdL};white-space:nowrap">
-      <button class="icobtn" title="Edit" aria-label="Edit" onclick='editType(${JSON.stringify(key)})'>${ICO_PENCIL}</button>
+  const actions=(key)=> adm?`<td>
+      <button class="icobtn" title="Edit specifications" aria-label="Edit" onclick='editType(${JSON.stringify(key)})'>${ICO_PENCIL}</button>
       <button class="icobtn danger" title="Delete" aria-label="Delete" onclick='deleteType(${JSON.stringify(key)})'>${ICO_TRASH}</button></td>`:'';
   const metalSummary=list=>list.map(m=>`${m.name||m.el} (≤${m.limit}%)`).join('; ');
 
-  // gather every type key across macro (EFF), micro (custom), heavy (typeMetals)
   const keys=new Set();
   EFF.forEach(e=>keys.add(e._aliases[0].key));
   Object.keys(custom).forEach(k=>keys.add(k));
   Object.keys(tmetals).forEach(k=>keys.add(k));
 
-  const rows=[...keys].map(key=>{
+  const rows=[...keys].sort((a,b)=>catalogTypeName(a).localeCompare(catalogTypeName(b),undefined,{sensitivity:'base'})).map(key=>{
     const e=EFF.find(x=>x._aliases[0].key===key);
     const cs=custom[key], ms=tmetals[key];
-    const names=(e&&e.names)||(cs&&cs.disp)||(ms&&ms.disp)||key;
+    const names=catalogTypeName(key);
     const parts=[];
     if(e&&e._analytes.length) parts.push('<b>Macro:</b> '+analyteSummary(e._analytes));
     if(cs&&cs.specs&&cs.specs.length) parts.push('<b>Micro:</b> '+analyteSummary(cs.specs));
     if(ms&&ms.metals&&ms.metals.length) parts.push('<b>Heavy metals:</b> '+metalSummary(ms.metals));
-    return `<tr><td style="${tdL}">${names}</td>
-      <td style="${tdL}">${parts.join('<br>')||'<i>none</i>'}</td>
+    return `<tr><td><b>${names}</b></td>
+      <td>${parts.join('<br>')||'<i>none</i>'}</td>
       ${actions(key)}</tr>`;
   });
   document.getElementById('catalogList').innerHTML=
-    `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
-      <tr><th style="${thL}" width="26%">Sample type</th><th style="${thL}">Reported tables &amp; claims</th>${adm?`<th style="${thL}" width="120">Actions</th>`:''}</tr>
-      ${rows.join('')||`<tr><td style="${tdL}" colspan="3"><i>No sample types yet — add one below.</i></td></tr>`}
+    `<table class="lab-table">
+      <thead><tr><th width="26%">Sample type</th><th>Reported tables &amp; claims</th>${adm?'<th width="88">Actions</th>':''}</tr></thead>
+      <tbody>${rows.join('')||`<tr><td colspan="${adm?3:2}"><i>No sample types yet — add one below.</i></td></tr>`}</tbody>
     </table>
-    <div style="color:#888;font-size:11px;margin-top:5px">A report shows only the tables its sample type defines (Macro, Micro and/or Heavy Metals).${adm?' All types are user-defined and saved on this computer.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
-    ${adm?`<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="act sec" style="font-size:12px" onclick="exportLibrary()">Export sample types</button>
-      <label class="act sec" style="font-size:12px;cursor:pointer">Import sample types
+    <div class="lab-note" style="margin-top:8px">A report shows only the tables its sample type defines (Macro, Micro and/or Heavy Metals).${adm?' All types are saved on this computer. Element editing requires admin password.':' <b>View only</b> — sign in as an admin to make changes.'}</div>
+    ${adm?`<div class="lab-toolbar">
+      <button class="act sec lab-sm" onclick="exportLibrary()">Export sample types</button>
+      <label class="act sec lab-sm" style="cursor:pointer;display:inline-flex;align-items:center">Import sample types
         <input type="file" accept=".json,application/json" style="display:none" onchange="importLibrary(event)"></label>
     </div>`:''}`;
 }
@@ -5295,21 +5392,22 @@ function specRowHTML(sp){
   const converted = !isHeavy && CONV_OPTIONS[ci].factor!==1;
   const molVal = sp.form || (CONV_OPTIONS[ci].form||'');
   const molRO = converted && !isCustom;   // preset forms are read-only
-  return `<div class="specRow" style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-    <select class="sEl" style="flex:2;padding:5px;min-width:150px">${els}</select>
-    <input class="sName" type="text" placeholder="analyte name (optional)" value="${(sp.name||'').replace(/"/g,'&quot;')}" style="flex:2;padding:5px;min-width:130px" title="Override the default element name on the report (e.g. Zinc Stearate)">
-    <input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit %':'claim %'}" value="${sp.claim!=null?sp.claim:''}" style="flex:1;padding:5px;min-width:70px">
-    <select class="sConv" style="flex:2;padding:5px;min-width:150px" ${isHeavy?'disabled':''}>${conv}</select>
-    <input class="sFactor" type="number" step="any" placeholder="coefficient" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:90px;padding:5px;display:${isCustom&&!isHeavy?'':'none'}">
-    <input class="sMol" type="text" placeholder="molecular form (e.g. P₂O₅)" value="${molVal.replace(/"/g,'&quot;')}" ${molRO?'readonly':''} style="width:140px;padding:5px;display:${converted?'':'none'};${molRO?'background:#f2f2f2':''}">
-    <select class="sTable" title="Which report table" style="padding:5px">
-      <option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option>
-      <option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option>
-      <option value="heavy" ${sp.table==='heavy'?'selected':''}>Heavy Metal</option>
-    </select>
-    <select class="sWl" title="Wavelength / data source" style="padding:5px;max-width:140px">${wlOptionsHTML(sp.el||choices[0], sp.wl)}</select>
-    <button type="button" class="act sec" onclick="this.parentNode.remove()">✕</button>
-  </div>`;
+  return `<tr class="specRow">
+    <td><select class="sEl" style="width:100%;min-width:120px">${els}</select></td>
+    <td><input class="sName" type="text" placeholder="optional" value="${(sp.name||'').replace(/"/g,'&quot;')}" style="width:100%" title="Override the default element name on the report"></td>
+    <td><input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit':'claim'}" value="${sp.claim!=null?sp.claim:''}" style="width:72px"></td>
+    <td><select class="sConv" style="width:100%;min-width:130px" ${isHeavy?'disabled':''}>${conv}</select></td>
+    <td><input class="sFactor" type="number" step="any" placeholder="×" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:64px;display:${isCustom&&!isHeavy?'':'none'}"></td>
+    <td><input class="sMol" type="text" placeholder="form" value="${molVal.replace(/"/g,'&quot;')}" ${molRO?'readonly':''} style="width:88px;display:${converted?'':'none'};${molRO?'background:#eef2f6':''}"></td>
+    <td><select class="sTable" style="width:100%"><option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option><option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option><option value="heavy" ${sp.table==='heavy'?'selected':''}>Heavy</option></select></td>
+    <td><select class="sWl" style="width:100%;min-width:110px">${wlOptionsHTML(sp.el||choices[0], sp.wl)}</select></td>
+    <td><button type="button" class="icobtn danger" onclick="this.closest('tr').remove()" title="Remove row" aria-label="Remove">${ICO_TRASH}</button></td>
+  </tr>`;
+}
+function addSpecRow(){
+  requireAdmin('add analyte to sample type', ()=>{
+    document.getElementById('specRows').insertAdjacentHTML('beforeend', specRowHTML());
+  });
 }
 function renderAddForm(){
   // non-admins get a view-only catalog — no add/edit form
@@ -5323,33 +5421,42 @@ function renderAddForm(){
   const ec=EDIT_CONTEXT;
   const existing=(function(){const seen=new Set(),out=[];const add=(d,k)=>{if(k&&!seen.has(k)){seen.add(k);out.push(d);}};
     EFF.forEach(e=>add(e.names,e._aliases[0].key)); const c=loadCustom();Object.keys(c).forEach(k=>add(c[k].disp,k));
-    const tm=loadTypeMetals();Object.keys(tm).forEach(k=>add(tm[k].disp,k)); return out;})();
+    const tm=loadTypeMetals();Object.keys(tm).forEach(k=>add(tm[k].disp,k));
+    return out.sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));})();
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
   const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
-  const note='Set each analyte to <b>Macro</b>, <b>Micro</b>, or <b>Heavy Metal</b> — the report shows only the tables you use. '+
-    'For Heavy Metal rows the number is the allowed limit %. (P→P₂O₅ and K→K₂O auto-set to Macro.)';
+  const note='Assign each analyte to Macro, Micro, or Heavy Metal. Heavy-metal rows use the limit column. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
 
   document.getElementById('addTitle').textContent = editing
     ? `Editing: ${ec.name}` : 'Add new sample type';
 
   document.getElementById('addForm').innerHTML=`
-    ${editing?'':`<div style="display:flex;gap:18px;margin-bottom:10px;font-size:13px">
-      <label><input type="radio" name="addMode" value="new" checked onchange="toggleAddMode()"> New sample type</label>
-      <label><input type="radio" name="addMode" value="existing" onchange="toggleAddMode()"> Add spec to existing type</label>
+    ${editing?'':`<div style="display:flex;gap:18px;margin-bottom:10px;font-size:12px">
+      <label class="lab-chk"><input type="radio" name="addMode" value="new" checked onchange="toggleAddMode()"> New sample type</label>
+      <label class="lab-chk"><input type="radio" name="addMode" value="existing" onchange="toggleAddMode()"> Add spec to existing type</label>
     </div>`}
-    <div id="newWrap" style="margin-bottom:8px;${editing?'':''}">
-      <input id="newName" placeholder="Sample type name(s) — separate alternates with /" value="${editing?String(ec.name).replace(/"/g,'&quot;'):''}" style="width:100%;padding:7px">
+    <div id="newWrap" class="lab-field" style="margin-bottom:10px">
+      <label>Sample type name(s)</label>
+      <input id="newName" placeholder="Separate alternates with /" value="${editing?String(ec.name).replace(/"/g,'&quot;'):''}" style="width:100%">
     </div>
-    <div id="existWrap" style="margin-bottom:8px;display:none">
-      <select id="existSel" style="width:100%;padding:7px">${opts}</select>
+    <div id="existWrap" class="lab-field" style="margin-bottom:10px;display:none">
+      <label>Existing type</label>
+      <select id="existSel" style="width:100%">${opts}</select>
     </div>
-    <div style="font-size:12px;color:#666;margin-bottom:4px">${note}</div>
-    <div id="specRows">${specHTML}</div>
-    <button type="button" class="act sec" onclick="document.getElementById('specRows').insertAdjacentHTML('beforeend', specRowHTML())">+ Add analyte</button>
-    <div style="margin-top:12px">
-      <button type="button" class="act" onclick="saveSpec()">Save</button>
-      ${editing?'<button type="button" class="act sec" onclick="cancelEdit()">Cancel edit</button>':''}
-      <span id="saveMsg" style="margin-left:10px;font-size:13px;color:#0f4c81"></span>
+    <div class="lab-note" style="margin-bottom:8px">${note}</div>
+    <div style="overflow:auto;border:1px solid #c2c8cf;border-radius:2px">
+      <table class="lab-table" style="margin:0">
+        <thead><tr>
+          <th>Element</th><th>Display name</th><th>Claim/limit</th><th>Conversion</th><th>Coeff.</th><th>Form</th><th>Table</th><th>Wavelength</th><th></th>
+        </tr></thead>
+        <tbody id="specRows">${specHTML}</tbody>
+      </table>
+    </div>
+    <div class="lab-toolbar">
+      <button type="button" class="act sec lab-sm" onclick="addSpecRow()">+ Add analyte</button>
+      <button type="button" class="act lab-sm" onclick="saveSpec()">Save</button>
+      ${editing?'<button type="button" class="act sec lab-sm" onclick="cancelEdit()">Cancel</button>':''}
+      <span id="saveMsg" style="font-size:12px;color:#0f4c81"></span>
     </div>`;
   // delegated handler: conversion coefficient + molecular form + routing + custom element
   document.getElementById('specRows').addEventListener('change',e=>{
@@ -5474,7 +5581,8 @@ function analyteToSpec(a,table){
   return {el:a.el, claim:a.claim, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
 }
 // load all three categories of a type into the editor, tagged by table
-function editType(key){
+function editType(key){ requireAdmin('edit sample type specifications', ()=>_editType(key)); }
+function _editType(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
   const cs=loadCustom()[key], ms=loadTypeMetals()[key];
   const name=(e&&e.names) || (cs&&cs.disp) || (ms&&ms.disp) || key;
