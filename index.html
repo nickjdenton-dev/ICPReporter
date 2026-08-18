@@ -2023,7 +2023,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
               <button onclick="menuDownload(printAll);closeMenus()">Print all together</button>
             </div>
           </div>
-          <button onclick="openTracker();closeMenus()" title="Commit finalized results, choose the tracker file, or import an older tracker's history">Tracker…</button>
+          <button onclick="openTracker();closeMenus()" title="Commit results, choose the tracker file, or import an older tracker's history">Tracker…</button>
           <div class="menu-sep"></div>
           <button onclick="logout();closeMenus()">Log out</button>
         </div>
@@ -2185,18 +2185,17 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           % below claim
         </label>
         <button class="act sec" onclick="applyTrendBands()" title="Save these limits and redraw every chart in the tracker workbook">Save &amp; redraw charts</button>
-        <button class="act sec" onclick="collapseAndRebuildTrackerCharts()" title="Normalize duplicate sample-type spellings, hide duplicate chart tabs, and rebuild every chart from All Data">Rebuild &amp; merge duplicates</button>
+        <button class="act sec" onclick="rebuildTrackerChartsFromUI()" title="Reread All Data and redraw every chart (after hand-editing rows in Excel)">Rebuild charts</button>
       </div>
       <div style="font-size:11px;color:#888;margin-top:4px">These are guaranteed minimums, so the lines sit below the
-      label claim — a 5% warning on an 11.2% claim draws at 10.64. Saving redraws every chart in the workbook; no data is changed.</div>
+      label claim — a 5% warning on an 11.2% claim draws at 10.64.
+      <b>Save &amp; redraw charts</b> applies new warning/limit percentages — no data is changed.
+      <b>Rebuild charts</b> rereads the <b>All Data</b> sheet and redraws every chart — use this after you edit rows there by hand (workbook must be closed in Excel).
+      To replace one sample's tracked results, load the report and commit again: matching rows (same sample type, batch, date, and element) are updated in place, not duplicated.</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
       <button id="trkCommit" class="act" onclick="requestCommitToTracker()">Commit selected to tracker</button>
       <span id="trkMsg" style="font-size:12px;color:#0f4c81"></span>
-    </div>
-    <div style="border:1px solid #b8860b;background:#fff8e1;color:#7a5c00;padding:9px 11px;border-radius:5px;font-size:12.5px;margin-top:16px">
-      <b>Only finalized data should be committed for tracking.</b> Committed rows are appended to the
-      shared tracker workbook and become part of your organization's QC trend record.
     </div>
     </div>
   </div>
@@ -2442,7 +2441,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.8';   // bump on each release
+const APP_VERSION='v5.15.9';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4558,7 +4557,7 @@ function toggleFinalize(){
     setAllReportsLocked(true);
     applyFinalizeState();
     addLog('REPORT','All reports finalized & locked');
-    openTracker(true);
+    openTracker();
   });
 }
 function updateFinalizeBar(){
@@ -4901,12 +4900,10 @@ function alphabetizeTrackerTabs(doc){
   hid.sort(cmp);
   return doc.reorderSheets(data.concat(vis,hid).map(s=>s.name));
 }
-async function collapseAndRebuildTrackerCharts(){
+async function rebuildTrackerChartsFromUI(){
   const msg=document.getElementById('trkMsg');
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
-  if(!confirm('Rebuild every chart from All Data and merge duplicate tabs for the same sample type?\n\n'
-    +'Duplicate chart tabs will be hidden — including two Best-K tabs merged into one, Fertilex-8 merged into QC, and spelling variants like Nutrazen/Nutrozen. Best-K Org stays separate. Sample-type spellings in All Data will be normalized. The workbook must be closed in Excel.')) return;
-  await rebuildTrackerCharts(msg,{collapse:true});
+  await rebuildTrackerCharts(msg);
 }
 // build the long-format rows a single sample contributes
 function trackerRowsFor(s, productName){
@@ -4985,9 +4982,7 @@ async function setTrackerHandle(h,how){
 // Opens with or without a loaded report: "Import history…" and choosing the
 // tracker file are setup jobs that have nothing to do with today's samples, and
 // requiring raw data to reach them made a one-time migration impossible.
-function openTracker(skipUnfinalizedWarn){
-  if(!skipUnfinalizedWarn && SAMPLES.length && !FINALIZED
-     && !confirm('These reports are NOT finalized yet.\n\nOnly finalized data should be committed for tracking. Continue anyway?')) return;
+function openTracker(){
   renderTrackerList(); updateTrackerFileLabel(); renderTrendBands();
   document.getElementById('trkMsg').textContent='';
   document.getElementById('trackerModal').classList.add('open');
