@@ -1074,6 +1074,28 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       contentTypes: CT,
       relTypes: REL_TYPE,
 
+      setSheetHidden: function (name, hidden) {
+        const want = String(name || '').trim().toLowerCase();
+        const rec = sheets.find(s => s.name.trim().toLowerCase() === want);
+        if (!rec) return false;
+        rec.hidden = !!hidden;
+        const inner = sheets.map(s => {
+          let tag = '<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+            + ' name="' + esc(s.name).replace(/"/g, '&quot;') + '" sheetId="' + s.sheetId + '"'
+            + ' r:id="' + s.rid + '"';
+          if (s.hidden) tag += ' state="hidden"';
+          return tag + '/>';
+        }).join('');
+        wbXml = wbXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/,
+          '<sheets xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' + inner + '</sheets>');
+        return true;
+      },
+      isSheetHidden: function (name) {
+        const want = String(name || '').trim().toLowerCase();
+        const rec = sheets.find(s => s.name.trim().toLowerCase() === want);
+        return rec ? !!rec.hidden : true;
+      },
+
       toBytes: async function () {
         let body = '';
         for (const r of rows) body += renderRow(r);
@@ -2147,6 +2169,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           % below claim
         </label>
         <button class="act sec" onclick="applyTrendBands()" title="Save these limits and redraw every chart in the tracker workbook">Save &amp; redraw charts</button>
+        <button class="act sec" onclick="collapseAndRebuildTrackerCharts()" title="Normalize duplicate sample-type spellings, hide duplicate chart tabs, and rebuild every chart from All Data">Rebuild &amp; merge duplicates</button>
       </div>
       <div style="font-size:11px;color:#888;margin-top:4px">These are guaranteed minimums, so the lines sit below the
       label claim — a 5% warning on an 11.2% claim draws at 10.64. Saving redraws every chart in the workbook; no data is changed.</div>
@@ -2385,7 +2408,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.3';   // bump on each release
+const APP_VERSION='v5.15.4';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4719,6 +4742,98 @@ async function resolveTrackerTabsForCommit(doc,picked,colFor){
   if(!issues.length) return partial;
   return showTrackerTabResolveModal(issues,partial,rows,colFor);
 }
+/* ---- repair: normalize All Data spellings and hide duplicate chart tabs ---- */
+function scoreKeeperTab(tab,rows,colFor){
+  let score=0;
+  const canon=trkDisplayName(tab.sheet).toLowerCase();
+  if(tab.sheet.toLowerCase()===canon) score+=100;
+  if(!/\s+\d+$/.test(tab.sheet)) score+=50;
+  if(colFor&&colFor.SampleType!==undefined){
+    rows.forEach(r=>{
+      const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
+      if(st.toLowerCase()===tab.sheet.toLowerCase()) score+=2;
+      else if(catalogKeyForType(st)===tab.key) score+=1;
+    });
+  }
+  if(TRK_TAB_PICK[tab.key]&&TRK_TAB_PICK[tab.key].toLowerCase()===tab.sheet.toLowerCase()) score+=200;
+  return score;
+}
+function pickKeeperTab(tabs,rows,colFor){
+  if(!tabs.length) return null;
+  if(tabs.length===1) return tabs[0];
+  const sorted=tabs.slice().sort((a,b)=>scoreKeeperTab(b,rows,colFor)-scoreKeeperTab(a,rows,colFor));
+  return sorted[0];
+}
+function productsFromTrackerData(rows,colFor){
+  const byKey={};
+  if(!colFor||colFor.SampleType===undefined||colFor.Element===undefined) return [];
+  rows.forEach(r=>{
+    const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
+    if(!st) return;
+    const key=catalogKeyForType(st);
+    if(!byKey[key]) byKey[key]={key, name:trkType(trkDisplayName(st)), elements:new Set(), matchNames:new Set()};
+    byKey[key].matchNames.add(st);
+    const el=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
+    if(!el) return;
+    const meas=r[colFor.Measured];
+    const n=typeof meas==='number'?meas:parseFloat(String(meas==null?'':meas).replace(/,/g,''));
+    if(!isFinite(n)) return;
+    byKey[key].elements.add(el);
+  });
+  return Object.keys(byKey).map(k=>{
+    const p=byKey[k];
+    const keeper=TRK_TAB_PICK[p.key];
+    if(keeper) p.name=trkType(keeper);
+    return {name:p.name, elements:[...p.elements], matchNames:[...p.matchNames, p.name]};
+  }).filter(p=>p.elements.length);
+}
+function collapseTrackerDuplicates(doc,colFor){
+  const rows=doc.dataRows();
+  const groups=new Map();
+  listTrackerProductTabs(doc).forEach(t=>{
+    if(doc.isSheetHidden(t.sheet)) return;
+    if(!groups.has(t.key)) groups.set(t.key,[]);
+    groups.get(t.key).push(t);
+  });
+  const keeperMap=new Map(), hidden=[];
+  groups.forEach((tabs,key)=>{
+    const keeper=pickKeeperTab(tabs,rows,colFor);
+    if(!keeper) return;
+    const canon=trkType(trkDisplayName(keeper.sheet));
+    keeperMap.set(key,canon);
+    TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
+    tabs.forEach(t=>{
+      if(t.sheet===keeper.sheet) return;
+      if(doc.setSheetHidden(t.sheet,true)){
+        hidden.push(t.sheet);
+        if(t.helper&&doc.sheetNamed(t.helper)&&!tabs.some(x=>x.sheet===keeper.sheet&&x.helper===t.helper))
+          doc.setSheetHidden(t.helper,true);
+      }
+    });
+  });
+  let normalized=0;
+  if(colFor&&colFor.SampleType!==undefined){
+    rows.forEach((row,i)=>{
+      const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
+      if(!st) return;
+      const key=catalogKeyForType(st);
+      const canon=keeperMap.get(key);
+      if(!canon) return;
+      if(trkType(st).toLowerCase()!==canon.toLowerCase()){
+        doc.updateRow(i,{[colFor.SampleType]:canon});
+        normalized++;
+      }
+    });
+  }
+  return {normalized, hidden, keepers:keeperMap.size};
+}
+async function collapseAndRebuildTrackerCharts(){
+  const msg=document.getElementById('trkMsg');
+  if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
+  if(!confirm('Rebuild every chart from All Data and merge duplicate tabs for the same sample type?\n\n'
+    +'Duplicate chart tabs (e.g. "Nutrozen" and "Nutrazen") will be hidden. Sample-type spellings in All Data will be normalized. The workbook must be closed in Excel.')) return;
+  await rebuildTrackerCharts(msg,{collapse:true});
+}
 // build the long-format rows a single sample contributes
 function trackerRowsFor(s, productName){
   const who=userFullName(CURRENT_USER), when=new Date().toISOString().slice(0,19).replace('T',' ');
@@ -4829,10 +4944,11 @@ async function applyTrendBands(){
 }
 // Redraw every chart from what is already in All Data — also the repair path
 // for a workbook edited by hand or written by an older build.
-async function rebuildTrackerCharts(msg){
+async function rebuildTrackerCharts(msg, opts){
+  opts=opts||{};
   if(!XlsxPatch.supported()){ msg.style.color='#a33';
     msg.textContent='Redrawing charts needs Chrome or Edge 103 or newer.'; return; }
-  msg.style.color='#0f4c81'; msg.textContent='Redrawing charts…';
+  msg.style.color='#0f4c81'; msg.textContent=opts.collapse?'Merging duplicates and redrawing charts…':'Redrawing charts…';
   try{
     const perm={mode:'readwrite'};
     if((await TRACKER_HANDLE.queryPermission(perm))!=='granted' && (await TRACKER_HANDLE.requestPermission(perm))!=='granted')
@@ -4841,15 +4957,29 @@ async function rebuildTrackerCharts(msg){
     const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     if(!st.headers) throw new Error('the tracker sheet has no header row yet.');
-    const sync=await QcCharts.sync(st.doc, [], trackerColMap(st.headers), st.doc.dataRows(), loadBands());
+    const colFor=trackerColMap(st.headers);
+    let collapseStats=null;
+    if(opts.collapse){
+      collapseStats=collapseTrackerDuplicates(st.doc,colFor);
+      msg.textContent='Rebuilding charts…';
+    }
+    const rows=st.doc.dataRows();
+    const products=opts.collapse?productsFromTrackerData(rows,colFor):[];
+    const sync=await QcCharts.sync(st.doc, products, colFor, rows, loadBands());
+    if(opts.collapse) collapseTrackerDuplicates(st.doc,colFor);
     await writeTrackerWorkbook(TRACKER_HANDLE, st.doc,
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     const b=loadBands();
     msg.style.color='#2e7d32';
-    msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s) — warning '
-      +b.warnPct+'%, limit '+b.limitPct+'% below claim.';
-    addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"',
-      {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct});
+    msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s)'
+      +(collapseStats&&collapseStats.hidden.length?' — hid duplicate tab(s): '+collapseStats.hidden.join(', '):'')
+      +(collapseStats&&collapseStats.normalized?' — normalized '+collapseStats.normalized+' row(s) in All Data':'')
+      +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
+    addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"'
+      +(collapseStats?(' — merged '+collapseStats.hidden.length+' duplicate tab(s), normalized '
+        +collapseStats.normalized+' row(s)'):''),
+      {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct,
+        hiddenTabs:collapseStats?collapseStats.hidden:[], normalized:collapseStats?collapseStats.normalized:0});
   }catch(e){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Redraw failed: '+m;
