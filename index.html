@@ -1016,6 +1016,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     }
     const dataRows = rows.filter(r => r.n > 1);
 
+    function rewriteWorkbookSheets() {
+      const inner = sheets.map(s => {
+        let tag = '<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+          + ' name="' + esc(s.name).replace(/"/g, '&quot;') + '" sheetId="' + s.sheetId + '"'
+          + ' r:id="' + s.rid + '"';
+        if (s.hidden) tag += ' state="hidden"';
+        return tag + '/>';
+      }).join('');
+      wbXml = wbXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/,
+        '<sheets xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' + inner + '</sheets>');
+    }
+
     /* --- the returned doc --- */
     const doc = {
       sheetName: sheet.name,
@@ -1074,26 +1086,30 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       contentTypes: CT,
       relTypes: REL_TYPE,
 
+      rewriteWorkbookSheets: rewriteWorkbookSheets,
+
       setSheetHidden: function (name, hidden) {
         const want = String(name || '').trim().toLowerCase();
         const rec = sheets.find(s => s.name.trim().toLowerCase() === want);
         if (!rec) return false;
         rec.hidden = !!hidden;
-        const inner = sheets.map(s => {
-          let tag = '<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
-            + ' name="' + esc(s.name).replace(/"/g, '&quot;') + '" sheetId="' + s.sheetId + '"'
-            + ' r:id="' + s.rid + '"';
-          if (s.hidden) tag += ' state="hidden"';
-          return tag + '/>';
-        }).join('');
-        wbXml = wbXml.replace(/<sheets\b[^>]*>[\s\S]*?<\/sheets>/,
-          '<sheets xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' + inner + '</sheets>');
+        rewriteWorkbookSheets();
         return true;
       },
       isSheetHidden: function (name) {
         const want = String(name || '').trim().toLowerCase();
         const rec = sheets.find(s => s.name.trim().toLowerCase() === want);
         return rec ? !!rec.hidden : true;
+      },
+      reorderSheets: function (namesInOrder) {
+        const want = namesInOrder.map(n => String(n || '').trim().toLowerCase());
+        if (want.length !== sheets.length) return false;
+        const byName = new Map(sheets.map(s => [s.name.trim().toLowerCase(), s]));
+        if (want.some(n => !byName.has(n))) return false;
+        sheets.length = 0;
+        want.forEach(n => sheets.push(byName.get(n)));
+        rewriteWorkbookSheets();
+        return true;
       },
 
       toBytes: async function () {
@@ -2408,7 +2424,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.5';   // bump on each release
+const APP_VERSION='v5.15.6';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4853,6 +4869,20 @@ function collapseTrackerDuplicates(doc,colFor){
   }
   return {normalized, hidden, keepers:keeperMap.size};
 }
+// Pin All Data first; visible chart tabs A–Z; hidden helpers last (not shown in Excel).
+function alphabetizeTrackerTabs(doc){
+  if(!doc||!doc.reorderSheets) return false;
+  const cmp=(a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'});
+  const data=[], vis=[], hid=[];
+  doc.sheets.forEach(s=>{
+    if(s.name===TRACKER_SHEET) data.push(s);
+    else if(s.hidden) hid.push(s);
+    else vis.push(s);
+  });
+  vis.sort(cmp);
+  hid.sort(cmp);
+  return doc.reorderSheets(data.concat(vis,hid).map(s=>s.name));
+}
 async function collapseAndRebuildTrackerCharts(){
   const msg=document.getElementById('trkMsg');
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
@@ -4993,6 +5023,7 @@ async function rebuildTrackerCharts(msg, opts){
     const products=opts.collapse?productsFromTrackerData(rows,colFor):[];
     const sync=await QcCharts.sync(st.doc, products, colFor, rows, loadBands());
     if(opts.collapse) collapseTrackerDuplicates(st.doc,colFor);
+    alphabetizeTrackerTabs(st.doc);
     await writeTrackerWorkbook(TRACKER_HANDLE, st.doc,
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     const b=loadBands();
@@ -5292,6 +5323,7 @@ async function commitToTracker(){
         await new Promise(r=>setTimeout(r,400+Math.random()*600));
         continue;
       }
+      alphabetizeTrackerTabs(doc);
       await writeTrackerWorkbook(TRACKER_HANDLE, doc,
         ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
       done=true;
