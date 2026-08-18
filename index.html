@@ -2500,7 +2500,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.0';   // bump on each release
+const APP_VERSION='v5.16.1';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3375,7 +3375,7 @@ function matchCatalog(type){
   return {entry:null, suggestion:best&&best.dist<=6?best.disp:null, distance:best?best.dist:null};
 }
 // Hyphens/underscores count as spaces so "Best-K" and "Best K" resolve together.
-function trackerNorm(s){ return norm(String(s).replace(/[-_]+/g,' ')); }
+function trackerNorm(s){ return norm(String(s).replace(/[-_]+/g,' ').replace(/\s+\d+$/,'')); }
 function matchCatalogLoose(type){
   let r=matchCatalog(type);
   if(r.entry) return r;
@@ -3425,21 +3425,29 @@ function catalogKeyForType(type){
   if(prefix) return prefix;
   return t;
 }
-// Tracker-only merges: historical chart tab / SampleType spellings that chart together.
-// Fertilex-8 was used for QC reference runs on the trend charts; QC controls are
-// labeled "QC" going forward. Product Fertilex-8 samples use sample type Fertilex-8
-// in reports — only rows already in the tracker under the old name merge here.
-const TRK_MERGE_ALIASES={'fertilex 8':'qc','fertilex8':'qc'};
+// Tracker-only merges: Fertilex product runs and QC reference runs chart together on
+// one tab — always "Fertilex-8", never a separate QC tab.
+const TRK_MERGE_KEY='fertilex 8';
+const TRK_MERGE_CANON={'fertilex 8':'Fertilex-8'};
+const TRK_MERGE_ALIASES={'qc':'fertilex 8','fertilex8':'fertilex 8'};
+function isFertilexQcType(tn){
+  if(!tn) return false;
+  if(tn==='qc'||tn===TRK_MERGE_KEY) return true;
+  if(tn.startsWith('fertilex')) return true;
+  return false;
+}
 function trackerCatalogKey(type){
   const tn=trackerNorm(type);
+  if(isFertilexQcType(tn)) return TRK_MERGE_KEY;
   if(TRK_MERGE_ALIASES[tn]) return TRK_MERGE_ALIASES[tn];
   const base=catalogKeyForType(type);
+  if(isFertilexQcType(base)) return TRK_MERGE_KEY;
   if(TRK_MERGE_ALIASES[base]) return TRK_MERGE_ALIASES[base];
   return base;
 }
 function trackerDisplayName(type){
   const key=trackerCatalogKey(type);
-  if(key==='qc') return trkDisplayName('QC');
+  if(TRK_MERGE_CANON[key]) return trkType(TRK_MERGE_CANON[key]);
   return trkDisplayName(type);
 }
 function isDistinctProductVariant(a,b){
@@ -4931,7 +4939,11 @@ function scoreKeeperTab(tab,rows,colFor){
   const canon=trackerDisplayName(tab.sheet).toLowerCase();
   if(tab.sheet.toLowerCase()===canon) score+=100;
   if(!/\s+\d+$/.test(tab.sheet)) score+=50;
-  if(tab.key==='qc'&&tab.sheet.toLowerCase()==='qc') score+=150;
+  if(tab.key===TRK_MERGE_KEY){
+    const sn=trackerNorm(tab.sheet);
+    if(sn===TRK_MERGE_KEY||/^fertilex-8$/i.test(tab.sheet.replace(/\s/g,''))) score+=250;
+    else if(sn==='qc') score+=20;
+  }
   if(colFor&&colFor.SampleType!==undefined){
     rows.forEach(r=>{
       const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
@@ -5019,7 +5031,7 @@ function collapseTrackerDuplicates(doc,colFor){
   groups.forEach((tabs,key)=>{
     const keeper=pickKeeperTab(tabs,rows,colFor);
     if(!keeper) return;
-    const canon=trkType(trackerDisplayName(keeper.sheet));
+    const canon=trkType(TRK_MERGE_CANON[key]||trackerDisplayName(keeper.sheet));
     keeperMap.set(key,canon);
     TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
     tabs.forEach(t=>{
