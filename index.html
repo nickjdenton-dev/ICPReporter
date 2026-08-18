@@ -2408,7 +2408,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15.4';   // bump on each release
+const APP_VERSION='v5.15.5';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3307,8 +3307,25 @@ function catalogKeyForType(type){
   }
   return t;
 }
+// Tracker-only merges: historical chart tab / SampleType spellings that chart together.
+// Fertilex-8 was used for QC reference runs on the trend charts; QC controls are
+// labeled "QC" going forward. Product Fertilex-8 samples use sample type Fertilex-8
+// in reports — only rows already in the tracker under the old name merge here.
+const TRK_MERGE_ALIASES={'fertilex 8':'qc','fertilex8':'qc'};
+function trackerCatalogKey(type){
+  const tn=trackerNorm(type);
+  if(TRK_MERGE_ALIASES[tn]) return TRK_MERGE_ALIASES[tn];
+  const base=catalogKeyForType(type);
+  if(TRK_MERGE_ALIASES[base]) return TRK_MERGE_ALIASES[base];
+  return base;
+}
+function trackerDisplayName(type){
+  const key=trackerCatalogKey(type);
+  if(key==='qc') return trkDisplayName('QC');
+  return trkDisplayName(type);
+}
 function isDistinctProductVariant(a,b){
-  const ka=catalogKeyForType(a), kb=catalogKeyForType(b);
+  const ka=trackerCatalogKey(a), kb=trackerCatalogKey(b);
   if(ka===kb) return false;
   if(matchCatalogLoose(a).entry && matchCatalogLoose(b).entry) return true;
   const na=trackerNorm(a), nb=trackerNorm(b);
@@ -4626,25 +4643,27 @@ function sampleTypesInData(rows,colFor){
   });
   return set;
 }
-function listTrackerProductTabs(doc){
+function listTrackerProductTabs(doc, useMergeKeys){
+  const keyFn=useMergeKeys?trackerCatalogKey:catalogKeyForType;
   const out=[];
   for(const s of doc.sheets){
     if(s.hidden) continue;
     let helper=doc.sheetNamed('_'+s.name);
     if(!helper){
-      const key=catalogKeyForType(s.name);
+      const key=keyFn(s.name);
       helper=doc.sheets.find(h=>h.hidden&&h.name.startsWith('_')
-        &&catalogKeyForType(h.name.slice(1))===key);
+        &&keyFn(h.name.slice(1))===key);
     }
     if(!helper) continue;
-    out.push({sheet:s.name, helper:helper.name, key:catalogKeyForType(s.name)});
+    out.push({sheet:s.name, helper:helper.name, key:keyFn(s.name)});
   }
   return out;
 }
-function collectMatchNames(key,rows,colFor,primaryName){
-  const names=new Set([primaryName, trkDisplayName(primaryName)]);
+function collectMatchNames(key,rows,colFor,primaryName,useMergeKeys){
+  const keyFn=useMergeKeys?trackerCatalogKey:catalogKeyForType;
+  const names=new Set([primaryName, trackerDisplayName(primaryName)]);
   sampleTypesInData(rows,colFor).forEach(st=>{
-    if(catalogKeyForType(st)===key) names.add(st);
+    if(keyFn(st)===key) names.add(st);
   });
   return [...names];
 }
@@ -4652,10 +4671,10 @@ function resolveTrackerTab(doc,type,rows,colFor){
   const key=catalogKeyForType(type);
   if(TRK_TAB_PICK[key]){
     const name=TRK_TAB_PICK[key];
-    return {name, key, canonical:trkDisplayName(type),
+    return {name, key, canonical:trackerDisplayName(type),
       matchNames:collectMatchNames(key,rows,colFor,name), merged:true};
   }
-  const canonical=trkDisplayName(type);
+  const canonical=trackerDisplayName(type);
   const tabs=listTrackerProductTabs(doc);
   const candidates=new Set();
   tabs.filter(t=>t.key===key).forEach(t=>candidates.add(t.sheet));
@@ -4745,9 +4764,10 @@ async function resolveTrackerTabsForCommit(doc,picked,colFor){
 /* ---- repair: normalize All Data spellings and hide duplicate chart tabs ---- */
 function scoreKeeperTab(tab,rows,colFor){
   let score=0;
-  const canon=trkDisplayName(tab.sheet).toLowerCase();
+  const canon=trackerDisplayName(tab.sheet).toLowerCase();
   if(tab.sheet.toLowerCase()===canon) score+=100;
   if(!/\s+\d+$/.test(tab.sheet)) score+=50;
+  if(tab.key==='qc'&&tab.sheet.toLowerCase()==='qc') score+=150;
   if(colFor&&colFor.SampleType!==undefined){
     rows.forEach(r=>{
       const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
@@ -4770,8 +4790,8 @@ function productsFromTrackerData(rows,colFor){
   rows.forEach(r=>{
     const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
     if(!st) return;
-    const key=catalogKeyForType(st);
-    if(!byKey[key]) byKey[key]={key, name:trkType(trkDisplayName(st)), elements:new Set(), matchNames:new Set()};
+    const key=trackerCatalogKey(st);
+    if(!byKey[key]) byKey[key]={key, name:trkType(trackerDisplayName(st)), elements:new Set(), matchNames:new Set()};
     byKey[key].matchNames.add(st);
     const el=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
     if(!el) return;
@@ -4790,7 +4810,7 @@ function productsFromTrackerData(rows,colFor){
 function collapseTrackerDuplicates(doc,colFor){
   const rows=doc.dataRows();
   const groups=new Map();
-  listTrackerProductTabs(doc).forEach(t=>{
+  listTrackerProductTabs(doc, true).forEach(t=>{
     if(doc.isSheetHidden(t.sheet)) return;
     if(!groups.has(t.key)) groups.set(t.key,[]);
     groups.get(t.key).push(t);
@@ -4799,24 +4819,30 @@ function collapseTrackerDuplicates(doc,colFor){
   groups.forEach((tabs,key)=>{
     const keeper=pickKeeperTab(tabs,rows,colFor);
     if(!keeper) return;
-    const canon=trkType(trkDisplayName(keeper.sheet));
+    const canon=trkType(trackerDisplayName(keeper.sheet));
     keeperMap.set(key,canon);
     TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
     tabs.forEach(t=>{
       if(t.sheet===keeper.sheet) return;
       if(doc.setSheetHidden(t.sheet,true)){
         hidden.push(t.sheet);
-        if(t.helper&&doc.sheetNamed(t.helper)&&!tabs.some(x=>x.sheet===keeper.sheet&&x.helper===t.helper))
-          doc.setSheetHidden(t.helper,true);
+        if(t.helper&&doc.sheetNamed(t.helper)){
+          const shared=tabs.some(x=>x.sheet===keeper.sheet&&x.helper===t.helper);
+          if(!shared) doc.setSheetHidden(t.helper,true);
+        }
       }
     });
+  });
+  sampleTypesInData(rows,colFor).forEach(st=>{
+    const key=trackerCatalogKey(st);
+    if(!keeperMap.has(key)) keeperMap.set(key, trkType(trackerDisplayName(st)));
   });
   let normalized=0;
   if(colFor&&colFor.SampleType!==undefined){
     rows.forEach((row,i)=>{
       const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
       if(!st) return;
-      const key=catalogKeyForType(st);
+      const key=trackerCatalogKey(st);
       const canon=keeperMap.get(key);
       if(!canon) return;
       if(trkType(st).toLowerCase()!==canon.toLowerCase()){
@@ -4831,7 +4857,7 @@ async function collapseAndRebuildTrackerCharts(){
   const msg=document.getElementById('trkMsg');
   if(!TRACKER_HANDLE){ msg.style.color='#a33'; msg.textContent='Choose the tracker file first.'; return; }
   if(!confirm('Rebuild every chart from All Data and merge duplicate tabs for the same sample type?\n\n'
-    +'Duplicate chart tabs (e.g. "Nutrozen" and "Nutrazen") will be hidden. Sample-type spellings in All Data will be normalized. The workbook must be closed in Excel.')) return;
+    +'Duplicate chart tabs will be hidden — including two Best-K tabs merged into one, Fertilex-8 merged into QC, and spelling variants like Nutrazen/Nutrozen. Best-K Org stays separate. Sample-type spellings in All Data will be normalized. The workbook must be closed in Excel.')) return;
   await rebuildTrackerCharts(msg,{collapse:true});
 }
 // build the long-format rows a single sample contributes
@@ -5684,7 +5710,7 @@ function importLibrary(ev){
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
-global.trkCatalogKeyForType=catalogKeyForType;
+global.trkCatalogKeyForType=trackerCatalogKey;
 
 function catalogTypeName(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
