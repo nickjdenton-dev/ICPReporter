@@ -2327,7 +2327,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.15';   // bump on each release
+const APP_VERSION='v5.15.1';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3781,7 +3781,7 @@ function reportHTML(s,idx){
   const lockBtn = isAdmin()
     ? `<button class="lockbtn no-export" contenteditable="false" title="Locked — click to unlock editing" onclick="toggleLock(this)">${ICO_LOCK}</button>` : '';
   const layout = (isAdmin() && idx!=null)
-    ? `<button class="layout-gear no-export" contenteditable="false" onclick="openReportLayout(${i})" title="Report settings — sample type &amp; visible tables">${ICO_GEAR}</button>` : '';
+    ? `<button class="layout-gear no-export" contenteditable="false" onclick="openReportLayout(${idx})" title="Report settings — sample type &amp; visible tables">${ICO_GEAR}</button>` : '';
   return `<div class="report" contenteditable="false">
     ${lockBtn}
     ${layout}
