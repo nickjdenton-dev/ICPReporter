@@ -1967,8 +1967,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <div id="reports"></div>
 
-<div id="sampleErrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:205;overflow:auto;padding:30px">
-  <div style="background:#fff;max-width:520px;margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 6px 30px rgba(0,0,0,.3)">
+<div id="sampleErrModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:205;overflow:auto;padding:16px;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;max-width:520px;width:min(520px,96vw);margin:0 auto;border-radius:8px;padding:22px 26px;box-shadow:0 8px 32px rgba(0,0,0,.28);max-height:min(70vh,520px);overflow-y:auto">
     <div style="display:flex;align-items:flex-start;margin-bottom:10px;gap:10px">
       <div style="flex:1;min-width:0">
         <h2 style="margin:0 0 4px;color:#0f4c81;font-size:18px">Sample needs attention</h2>
@@ -2234,7 +2234,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.11';   // bump on each release
+const APP_VERSION='v5.12';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3380,7 +3380,7 @@ function buildSample(s,elemCols,mode){
       msg:`Sample type "${type}" is not in the label-claim catalog.`+
           (mc.suggestion?` Did you mean "${mc.suggestion}"?`:'')};
   }else if(mc.fuzzy && !DISMISSED_FUZZY.has(s.label)){
-    error={code:'WARN-FUZZY-MATCH', soft:true,
+    error={code:'WARN-FUZZY-MATCH', soft:true, suggestion:mc.suggestion||null,
       msg:`Sample type "${type}" didn't match exactly — auto-matched to "${mc.suggestion}" `+
           `(off by ${mc.distance} character${mc.distance>1?'s':''}). Verify it's correct.`};
   }
@@ -3463,20 +3463,7 @@ function buildSampleErrControls(s){
   const e=s.error; if(!e) return '';
   const hard=!e.soft;
   const lbl=JSON.stringify(s.label);
-  const btn='cursor:pointer;border:1px solid #888;border-radius:4px;padding:6px 14px;margin-right:8px;font-size:13px;background:#fff';
-  if(hard){
-    const yesNo=e.suggestion?
-      `<button type="button" style="${btn}" onclick='applySuggestion(${lbl},${JSON.stringify(e.suggestion)})'>✓ Yes — use "${e.suggestion}"</button>`+
-      `<button type="button" style="${btn}" onclick='revealPicker(this)'>✕ No — pick another</button>`:'';
-    const pick=`<span class="typePicker" style="display:${e.suggestion?'none':'block'};margin-top:10px">
-        <label style="display:block;font-size:12px;color:#666;margin-bottom:4px">Select sample type:</label>
-        <select onchange='chooseType(${lbl},this.value)' style="padding:6px;font-size:13px;width:100%;max-width:360px">
-          <option value="">— select sample type —</option>
-          ${typeOptionsHTML()}
-          <option value="__new__">Add new sample type…</option>
-        </select></span>`;
-    return `<div>${yesNo}${pick}</div>`;
-  }
+  const btn='cursor:pointer;border:1px solid #888;border-radius:4px;padding:6px 14px;margin-right:8px;margin-bottom:6px;font-size:13px;background:#fff';
   const pick=`<span class="typePicker" style="display:none;margin-top:10px">
       <label style="display:block;font-size:12px;color:#666;margin-bottom:4px">Select sample type:</label>
       <select onchange='chooseType(${lbl},this.value)' style="padding:6px;font-size:13px;width:100%;max-width:360px">
@@ -3484,41 +3471,66 @@ function buildSampleErrControls(s){
         ${typeOptionsHTML()}
         <option value="__new__">Add new sample type…</option>
       </select></span>`;
-  return `<div>
-    <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Accept match</button>
-    <button type="button" style="${btn}" onclick='revealPicker(this)'>Change type…</button>${pick}</div>`;
+  if(hard){
+    const prompt=e.suggestion
+      ? `<p style="font-size:14px;margin:0 0 12px;line-height:1.45"><b>Is "${e.suggestion}" the correct sample type?</b></p>`
+      : `<p style="font-size:14px;margin:0 0 12px;line-height:1.45"><b>What is the correct sample type for this sample?</b></p>`;
+    const yesNo=e.suggestion
+      ? `<button type="button" style="${btn}" onclick='applySuggestion(${lbl},${JSON.stringify(e.suggestion)})'>✓ Yes</button>`+
+        `<button type="button" style="${btn}" onclick='revealPicker(this)'>✕ No</button>`
+      : '';
+    const pickOpen=e.suggestion?'none':'block';
+    const pickBlock=`<span class="typePicker" style="display:${pickOpen};margin-top:4px">
+        <label style="display:block;font-size:12px;color:#666;margin-bottom:4px">Select sample type:</label>
+        <select onchange='chooseType(${lbl},this.value)' style="padding:6px;font-size:13px;width:100%;max-width:360px">
+          <option value="">— select sample type —</option>
+          ${typeOptionsHTML()}
+          <option value="__new__">Add new sample type…</option>
+        </select></span>`;
+    return prompt+`<div>${yesNo}${pickBlock}</div>`;
+  }
+  const sug=e.suggestion||'';
+  const prompt=sug
+    ? `<p style="font-size:14px;margin:0 0 12px;line-height:1.45"><b>We auto-matched this to "${sug}" — is that correct?</b></p>`
+    : `<p style="font-size:14px;margin:0 0 12px;line-height:1.45"><b>Please verify the auto-matched sample type.</b></p>`;
+  return prompt+`<div>
+    <button type="button" style="${btn}" onclick='dismissFuzzy(${lbl})'>✓ Yes — accept match</button>
+    <button type="button" style="${btn}" onclick='revealPicker(this)'>✕ No — pick another</button>${pick}</div>`;
 }
 function sampleErrColors(s){
   const hard=s.error&&!s.error.soft;
   return hard?{b:'#c0392b',bg:'#fdecea',t:'#922',icon:'⛔'}:{b:'#b8860b',bg:'#fff8e1',t:'#7a5c00',icon:'⚠️'};
 }
+function scrollToReport(label, opts){
+  opts=opts||{};
+  const i=SAMPLES.findIndex(s=>s.label===label);
+  if(i<0) return;
+  const wrap=document.getElementById('reportWrap'+i);
+  if(!wrap) return;
+  const panel=document.getElementById('panel');
+  const gap=16;
+  const wrapTop=wrap.getBoundingClientRect().top+window.scrollY;
+  const panelBottom=panel?panel.getBoundingClientRect().bottom:80;
+  window.scrollTo({top:Math.max(0, wrapTop-panelBottom-gap), behavior:'smooth'});
+  wrap.classList.add('report-flash');
+  setTimeout(()=>wrap.classList.remove('report-flash'),1600);
+  if(!opts.keepModal) closeSampleError();
+}
 function openSampleError(label){
   const s=SAMPLES.find(x=>x.label===label);
   if(!s||!s.error) return;
+  scrollToReport(label, {keepModal:true});
   const col=sampleErrColors(s);
   document.getElementById('sampleErrTitle').textContent=s.label;
   document.getElementById('sampleErrBody').innerHTML=`
     <div style="border:1px solid ${col.b};background:${col.bg};color:${col.t};padding:12px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;line-height:1.45">
       ${col.icon} <b>${s.error.code}</b> — ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
     </div>
-    ${buildSampleErrControls(s)}
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid #eee">
-      <button type="button" class="act sec" onclick="scrollToReport(${JSON.stringify(label)})">View report ↓</button>
-    </div>`;
-  document.getElementById('sampleErrModal').style.display='block';
+    ${buildSampleErrControls(s)}`;
+  const m=document.getElementById('sampleErrModal');
+  m.style.display='flex';
 }
 function closeSampleError(){ document.getElementById('sampleErrModal').style.display='none'; }
-function scrollToReport(label){
-  closeSampleError();
-  const i=SAMPLES.findIndex(s=>s.label===label);
-  if(i<0) return;
-  const wrap=document.getElementById('reportWrap'+i);
-  if(wrap){
-    wrap.scrollIntoView({behavior:'smooth',block:'start'});
-    wrap.classList.add('report-flash');
-    setTimeout(()=>wrap.classList.remove('report-flash'),1400);
-  }
-}
 function revealPicker(btn){
   const box=btn.parentNode;
   box.querySelectorAll('button').forEach(b=>b.style.display='none');
