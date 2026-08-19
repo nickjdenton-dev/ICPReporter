@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const CACHE="icp-reporter-v5.17.1";
+=======
+const CACHE="icp-reporter-v5.17.2";
+>>>>>>> 9d5b3fd (Fix Allure charts: resolve range label claims for trend bands (v5.17.2))
 const ASSETS=["./","./index.html","./manifest.json","./icon-192.png","./icon-512.png"];
 
 self.addEventListener("install",e=>{
