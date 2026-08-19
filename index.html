@@ -1358,7 +1358,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const base = b * BLOCK;
         const claim = seriesClaims[el.toLowerCase()];
         const at = k => claim === null ? '' : round4(claim * k);
-        row += cellDate(colName(base + 1) + r, p.date)
+        row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
           + cell(colName(base + 4) + r, at(band.warnLo))
@@ -1490,34 +1490,35 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     Object.keys(out).forEach(k => out[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
     return out;
   }
-  function mergePointSets(primary, extra) {
+  function appendPoints(primary, extra) {
     const merged = {};
     const keys = new Set(Object.keys(primary || {}).concat(Object.keys(extra || {})));
     keys.forEach(k => {
-      const byDate = new Map();
-      (extra && extra[k] || []).forEach(p => {
+      const seen = new Set();
+      const list = [];
+      /* Never collapse by date alone — multiple batches can share a date. */
+      (extra && extra[k] || []).concat(primary && primary[k] || []).forEach(p => {
         if (!p || !p.date) return;
-        byDate.set(dateKey(p.date), p);
+        const id = dateKey(p.date) + '\0' + round4(p.measured);
+        if (seen.has(id)) return;
+        seen.add(id);
+        list.push(p);
       });
-      (primary && primary[k] || []).forEach(p => {
-        if (!p || !p.date) return;
-        byDate.set(dateKey(p.date), p);
-      });
-      merged[k] = [...byDate.values()].sort((a, b) => dateKey(a.date) - dateKey(b.date));
+      list.sort((a, b) => dateKey(a.date) - dateKey(b.date) || a.measured - b.measured);
+      merged[k] = list;
     });
     return merged;
   }
-  async function mergeHelperHistories(doc, els, points, prodKey, keyFn, skipPath) {
+  async function mergeHiddenHelperHistories(doc, els, points, prodKey, keyFn, skipPath) {
     let merged = points;
     for (const h of doc.sheets) {
       if (!h.hidden || !h.name.startsWith('_')) continue;
       if (h.path === skipPath) continue;
       if (keyFn && keyFn(h.name.slice(1)) !== prodKey) continue;
       const xml = await doc.partTextHead(h.path, 512000);
-      merged = mergePointSets(merged, parseHelperPoints(xml, els));
+      merged = appendPoints(merged, parseHelperPoints(xml, els));
     }
-    const own = await doc.partTextHead(skipPath, 512000);
-    return mergePointSets(parseHelperPoints(own, els), merged);
+    return merged;
   }
 
   /* ---------------- one chart ---------------- */
@@ -1557,26 +1558,38 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      row 2 down, and a range of 4999 categories against 16 points makes Excel
      spread the categories over the full width — the data ends up crushed into
      the left edge of the plot with no axis labels. */
-  function catAxScaling(pts) {
-    if (!pts || !pts.length) return '<scaling><orientation val="minMax"/></scaling>';
-    const serials = pts.map(p => excelDateSerial(p.date)).filter(v => v != null);
-    if (!serials.length) return '<scaling><orientation val="minMax"/></scaling>';
-    let lo = Math.min.apply(null, serials), hi = Math.max.apply(null, serials);
-    if (lo === hi) { lo -= 1; hi += 1; }
-    else {
-      const pad = Math.max((hi - lo) * 0.03, 0.5);
-      lo -= pad; hi += pad;
-    }
-    return '<scaling><orientation val="minMax"/><min val="' + round4(lo) + '"/><max val="' + round4(hi) + '"/></scaling>';
+  function axisBoundsForElement(pts, bands) {
+    if (!pts || !pts.length) return null;
+    const band = bandsOf(bands);
+    const vals = [];
+    pts.forEach(p => {
+      if (p.measured != null && isFinite(p.measured)) vals.push(p.measured);
+      if (p.claim != null && isFinite(p.claim)) {
+        vals.push(p.claim);
+        vals.push(round4(p.claim * band.warnLo));
+        vals.push(round4(p.claim * band.warnHi));
+        vals.push(round4(p.claim * band.limitLo));
+        vals.push(round4(p.claim * band.limitHi));
+      }
+    });
+    if (!vals.length) return null;
+    let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (lo === hi) { const b = Math.max(Math.abs(lo) * 0.05, 0.05); lo -= b; hi += b; }
+    const span = hi - lo, pad = Math.max(span * 0.08, 0.02);
+    return { min: round4(lo - pad), max: round4(hi + pad) };
   }
-  function chartXml(product, element, helper, block, lastRow, catPts) {
+  function valAxScaling(yBounds) {
+    if (!yBounds) return '<scaling><orientation val="minMax"/></scaling>';
+    return '<scaling><orientation val="minMax"/><min val="' + yBounds.min + '"/><max val="' + yBounds.max + '"/></scaling>';
+  }
+  function chartXml(product, element, helper, block, lastRow, yBounds) {
     const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
     const cDate = colName(base + 1), cMeas = colName(base + 2), cClaim = colName(base + 3);
     const cWarnLo = colName(base + 4), cWarnHi = colName(base + 5);
     const cLimLo = colName(base + 6), cLimHi = colName(base + 7);
     const s = (i, col, color, dashed, marker) => series(i, helper, cDate, col, color, dashed, last, marker);
-    const catScale = catAxScaling(catPts);
+    const yScale = valAxScaling(yBounds);
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
       + titleEl(product + ' - ' + element)
       + '<plotArea><lineChart><grouping val="standard"/>'
@@ -1587,19 +1600,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       + s(4, cClaim, COLOR.claim, false, false)
       + s(5, cMeas, COLOR.measured, false, true)
       + '<axId val="10"/><axId val="100"/></lineChart>'
-      + '<catAx><axId val="10"/>' + catScale
+      + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling>'
       + '<delete val="0"/><axPos val="b"/>'
-      + '<numFmt formatCode="yyyy-mm-dd" sourceLinked="1"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
       + '<crossAx val="100"/><crosses val="min"/><auto val="1"/><lblAlgn val="ctr"/>'
       + '<lblOffset val="100"/><noMultiLvlLbl val="0"/></catAx>'
-      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling>'
+      + '<valAx><axId val="100"/>' + yScale
       + '<delete val="0"/><axPos val="l"/><majorGridlines/>'
       + '<numFmt formatCode="General" sourceLinked="1"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
       + '<crossAx val="10"/><crosses val="min"/><crossBetween val="between"/></valAx></plotArea>'
       + '<legend><legendPos val="r"/><overlay val="0"/></legend>'
-      + '<plotVisOnly val="1"/><dispBlanksAs val="gap"/><showDataTable val="0"/></chart></chartSpace>';
+      + '<plotVisOnly val="1"/><dispBlanksAs val="gap"/></chart></chartSpace>';
   }
 
   // charts sit two to a row: columns A and K, every 16 rows, under the title
@@ -1958,7 +1970,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const els = bySym.size ? [...bySym.values()] : fromHelper;
       if (!els.length) continue;
       let all = pointsFor(rows, columns, product, els, matchNames);
-      all = await mergeHelperHistories(doc, els, all, prodKey, keyFn, helper.path);
+      all = await mergeHiddenHelperHistories(doc, els, all, prodKey, keyFn, helper.path);
       /* Drop analytes this product has no readings for. A sample type declares
          analytes it does not always measure, and each one used to get its own
          empty chart — tabs ended up buried under plots of nothing. Keep the full
@@ -1982,19 +1994,24 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (drawing) {
         const charts = await chartPathsOf(doc, drawing);
         const ids = await chartRelIdsOf(doc, drawing);
-        let anchors = '';
-        for (let k = 0; k < keep.length && k < charts.length; k++) {
-          if (!charts[k]) continue;
+        let anchors = '', ai = 0;
+        for (let k = 0; k < keep.length; k++) {
           const elKey = keep[k].toLowerCase();
-          const n = (points[elKey] || []).length;
-          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1, points[elKey] || []));
-          anchors += anchor(k, ids[k]);
+          const pts = points[elKey] || [];
+          const n = pts.length;
+          if (!n) continue;
+          let cp = k < charts.length ? charts[k] : null;
+          if (!cp) cp = doc.nextPart('xl/charts', 'chart', 'xml');
+          let rid = k < ids.length ? ids[k] : null;
+          if (!rid) rid = await doc.addRel(drawing, doc.relTypes.chart, cp);
+          const yBounds = axisBoundsForElement(pts, bands);
+          doc.setPart(cp, chartXml(product, keep[k], helper.name, k, n + 1, yBounds));
+          anchors += anchor(ai, rid);
+          ai++;
           out.retargeted++;
         }
-        /* Rewrite the drawing with an anchor per surviving chart. Charts that
-           dropped out keep their part and their relationship — only the anchor
-           goes — so nothing is deleted from the package and the chart returns
-           the moment the analyte is measured again. */
+        /* Pack anchors 0..n-1 with no gaps — a skipped index used to leave a
+           stale empty chart frame ("Add a series…") in the top-left slot. */
         if (anchors) doc.setPart(drawing,
           '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">'
           + anchors + '</wsDr>');
@@ -2683,7 +2700,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.8';   // bump on each release
+const APP_VERSION='v5.16.9';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
