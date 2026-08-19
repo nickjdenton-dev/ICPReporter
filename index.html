@@ -1293,6 +1293,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const band = bandsOf(bands);
     const depth = helperDepth(elements, points);
     const lastCol = colName(Math.max(1, elements.length * BLOCK));
+    const seriesClaims = {};
+    elements.forEach(el => {
+      const pts = points[el.toLowerCase()] || [];
+      let c = null;
+      for (let i = pts.length - 1; i >= 0; i--) {
+        if (pts[i].claim != null) { c = pts[i].claim; break; }
+      }
+      seriesClaims[el.toLowerCase()] = c;
+    });
     const out = [];
     out.push('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
       '<sheetPr><outlinePr summaryBelow="1" summaryRight="1"/><pageSetUpPr/></sheetPr>',
@@ -1317,7 +1326,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const p = (points[el.toLowerCase()] || [])[r - 2];
         if (!p) return;
         const base = b * BLOCK;
-        const claim = p.claim;
+        const claim = seriesClaims[el.toLowerCase()];
         const at = k => claim === null ? '' : round4(claim * k);
         row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
@@ -1338,6 +1347,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   function pointsFor(rows, cols, product, elements, matchNames) {
     const canonFn = global.trkCanonElementForType;
     const symFn = global.trkElSymbol;
+    const keyFn = global.trkCatalogKeyForType;
+    const claimFn = global.trkUnifiedClaimForElement;
+    const prodKey = keyFn ? keyFn(product) : null;
     const want = {};
     const symToKey = {};
     elements.forEach(e => {
@@ -1350,8 +1362,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const t = String(n == null ? '' : n).trim().toLowerCase();
       if (t) matchSet.add(t);
     });
+    function rowMatches(st){
+      const t=String(st==null?'':st).trim();
+      if(!t) return false;
+      if(matchSet.has(t.toLowerCase())) return true;
+      return prodKey && keyFn && keyFn(t)===prodKey;
+    }
     rows.forEach(r => {
-      if (!matchSet.has(String(r[cols.SampleType] == null ? '' : r[cols.SampleType]).trim().toLowerCase())) return;
+      if (!rowMatches(r[cols.SampleType])) return;
       const rowEl = String(r[cols.Element] == null ? '' : r[cols.Element]).trim();
       let target = rowEl.toLowerCase();
       if (!want[target]) {
@@ -1373,11 +1391,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
     Object.keys(want).forEach(k => {
       const pts = want[k];
-      let canon = null;
-      for (let i = pts.length - 1; i >= 0; i--) {
-        if (pts[i].claim != null) { canon = pts[i].claim; break; }
+      let canon = claimFn ? claimFn(rows, cols, product, k, matchNames) : null;
+      if (canon == null) {
+        for (let i = pts.length - 1; i >= 0; i--) {
+          if (pts[i].claim != null) { canon = pts[i].claim; break; }
+        }
       }
-      if (canon != null) pts.forEach(p => { if (p.claim == null) p.claim = canon; });
+      if (canon != null) pts.forEach(p => { p.claim = canon; });
     });
     return want;
   }
@@ -2508,7 +2528,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.1';   // bump on each release
+const APP_VERSION='v5.16.3';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5012,6 +5032,47 @@ function normalizeTrackerElements(doc, colFor){
    Older commits and imports often left it blank, so charts show measured points
    with no green/orange/red lines. For each sample type + element, take the claim
    from the most recently uploaded row and apply it to every row in that group. */
+function unifiedClaimForProductElement(rows, colFor, product, element, matchNames){
+  if(!colFor||colFor.LabelClaim===undefined||colFor.Element===undefined) return null;
+  let sym=trkElSymbol(element);
+  if(!sym){
+    const s=String(element==null?'':element).trim();
+    if(/^[A-Z][a-z]?$/.test(s)) sym=s;
+  }
+  if(!sym) return null;
+  const prodKey=trackerCatalogKey(product);
+  const matchSet=new Set();
+  [product].concat(matchNames||[]).forEach(n=>{
+    const t=String(n==null?'':n).trim().toLowerCase();
+    if(t) matchSet.add(t);
+  });
+  function rowMatches(st){
+    const t=String(st==null?'':st).trim();
+    if(!t) return false;
+    if(matchSet.has(t.toLowerCase())) return true;
+    return trackerCatalogKey(t)===prodKey;
+  }
+  let latest=null, bestRec=-1;
+  rows.forEach(r=>{
+    if(!rowMatches(r[colFor.SampleType])) return;
+    const rowEl=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
+    if(!rowEl||trkElSymbol(rowEl)!==sym) return;
+    const c=trkClaimNum(r[colFor.LabelClaim]);
+    if(c===null) return;
+    const rec=trackerRecency(colFor.ImportedAt!==undefined?r[colFor.ImportedAt]:'',
+      colFor.Date!==undefined?r[colFor.Date]:'');
+    if(rec>=bestRec){ bestRec=rec; latest=c; }
+  });
+  if(latest===null){
+    const lookup=matchNames&&matchNames.length?matchNames[0]:product;
+    const hit=analytesForType(lookup).find(a=>a.el===sym);
+    if(!hit&&lookup!==product){
+      const hit2=analytesForType(product).find(a=>a.el===sym);
+      if(hit2&&hit2.claim!=null) latest=hit2.claim;
+    }else if(hit&&hit.claim!=null) latest=hit.claim;
+  }
+  return latest;
+}
 function normalizeTrackerClaims(doc, colFor){
   if(!colFor||colFor.LabelClaim===undefined||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
   const rows=doc.dataRows();
@@ -5020,9 +5081,13 @@ function normalizeTrackerClaims(doc, colFor){
     const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
     const el=String(row[colFor.Element]==null?'':row[colFor.Element]).trim();
     if(!st||!el) return;
-    const gkey=trackerCatalogKey(st)+'\u0001'+(trkElSymbol(el)||el.toLowerCase());
-    if(!groups.has(gkey)) groups.set(gkey,{st, el, entries:[]});
+    const canonEl=canonicalElementForType(st, el);
+    const sym=trkElSymbol(canonEl)||trkElSymbol(el);
+    if(!sym) return;
+    const gkey=trackerCatalogKey(st)+'\u0001'+sym;
+    if(!groups.has(gkey)) groups.set(gkey,{st, sym, matchNames:new Set([st]), entries:[]});
     const g=groups.get(gkey);
+    g.matchNames.add(st);
     g.entries.push({i,
       claim:trkClaimNum(row[colFor.LabelClaim]),
       recency:trackerRecency(colFor.ImportedAt!==undefined?row[colFor.ImportedAt]:'',
@@ -5030,16 +5095,8 @@ function normalizeTrackerClaims(doc, colFor){
   });
   let n=0;
   groups.forEach(g=>{
-    let latestClaim=null, bestRecency=-1;
-    g.entries.forEach(e=>{
-      if(e.claim===null) return;
-      if(e.recency>=bestRecency){ bestRecency=e.recency; latestClaim=e.claim; }
-    });
-    if(latestClaim===null){
-      const sym=trkElSymbol(g.el);
-      const hit=analytesForType(g.st).find(a=>a.el===sym);
-      if(hit&&hit.claim!=null) latestClaim=hit.claim;
-    }
+    const latestClaim=unifiedClaimForProductElement(rows, colFor, g.st, elName||g.sym,
+      [...g.matchNames, trackerDisplayName(g.st)]);
     if(latestClaim===null) return;
     const canon=trkNum(latestClaim);
     g.entries.forEach(e=>{
@@ -5720,6 +5777,7 @@ async function importTrackerHistory(){
       if(p && el){ (products[p]=products[p]||{})[el]=1; }
     }
     normalizeTrackerElements(doc, newMap);
+    normalizeTrackerClaims(doc, newMap);
     collapseTrackerDuplicates(doc, newMap);
     msg.textContent='Building charts…';
     const sync=await QcCharts.sync(doc,
@@ -6049,6 +6107,9 @@ function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); r
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
 (typeof self!=='undefined'?self:window).trkCanonElementForType=canonicalElementForType;
+(typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
+  return unifiedClaimForProductElement(rows, cols, product, elementKey, matchNames);
+};
 
 function catalogTypeName(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
