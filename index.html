@@ -1690,7 +1690,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       doc.setPart(helper.path, helperSheetXml(all, {}, null));   // values land in sync()
 
       let dxml = await doc.partText(drawing);
-      const at = (dxml.match(/<oneCellAnchor>/g) || []).length;
+      /* A sheet rel can point at a drawing part that is missing from the package
+         (hand edit, partial save, older build). Without this guard, .match throws
+         and rebuild dies mid-flight. */
+      if (!dxml || dxml.indexOf('</wsDr>') < 0) {
+        dxml = '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"></wsDr>';
+        doc.setPart(drawing, dxml, doc.contentTypes.drawing);
+      }
+      const at = Math.max((dxml.match(/<oneCellAnchor>/g) || []).length, have.length);
       let add = '';
       for (let k = 0; k < missing.length; k++) {
         const cp = doc.nextPart('xl/charts', 'chart', 'xml');
@@ -2555,7 +2562,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.6';   // bump on each release
+const APP_VERSION='v5.16.7';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
