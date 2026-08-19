@@ -7055,7 +7055,7 @@ function analyteToSpec(a,table){
     const m=String(a.compound).match(/^(.+?)\s*\(([^)]+)\)\s*$/);
     if(m){ name=name||m[1].trim(); form=m[2].trim(); }
   }
-  return {el:a.el, claim:a.claim, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
+  return {el:a.el, claim:a.claim, claimMin:a.claimMin, claimMax:a.claimMax, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
 }
 // load all three categories of a type into the editor, tagged by table
 function editType(key){ requireAdmin('edit sample type specifications', ()=>_editType(key)); }
