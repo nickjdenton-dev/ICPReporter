@@ -1357,7 +1357,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         if (!p) return;
         const base = b * BLOCK;
         const claim = seriesClaims[el.toLowerCase()];
-        const at = k => claim === null ? '' : round4(claim * k);
+        const at = k => claim === null ? '' : chartRound(claim * k);
         row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
@@ -1372,6 +1372,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     return out.join('');
   }
   const round4 = n => Math.round(n * 10000) / 10000;
+  /* Significant-figure rounding for chart axis/bands — round4 flattens tiny
+     micronutrient claims so warn/limit collapse onto the claim line. */
+  function chartRound(v) {
+    if (!isFinite(v)) return v;
+    if (v === 0) return 0;
+    const a = Math.abs(v);
+    const prec = a >= 10 ? 4 : a >= 1 ? 4 : 3;
+    return parseFloat(Number(v).toPrecision(prec));
+  }
 
   /* ---- gather one product's points out of the tracker rows ---- */
   function pointsFor(rows, cols, product, elements, matchNames) {
@@ -1416,9 +1425,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const measured = num(r[cols.Measured]);
       if (measured === null) return;                 // Non-Detect / N/A: nothing to plot
       want[target].push({ date: String(r[cols.Date] == null ? '' : r[cols.Date]).trim(),
-                      measured: measured, claim: num(r[cols.LabelClaim]) });
+                      measured: measured, claim: num(r[cols.LabelClaim]),
+                      batch: cols.Batch !== undefined ? String(r[cols.Batch] == null ? '' : r[cols.Batch]).trim() : '' });
     });
-    Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
+    Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)
+      || a.measured - b.measured || String(a.batch || '').localeCompare(String(b.batch || ''))));
     Object.keys(want).forEach(k => {
       const pts = want[k];
       let canon = claimFn ? claimFn(rows, cols, product, k, matchNames) : null;
@@ -1499,12 +1510,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       /* Never collapse by date alone — multiple batches can share a date. */
       (extra && extra[k] || []).concat(primary && primary[k] || []).forEach(p => {
         if (!p || !p.date) return;
-        const id = dateKey(p.date) + '\0' + round4(p.measured);
+        const id = dateKey(p.date) + '\0' + round4(p.measured) + '\0' + String(p.batch || '');
         if (seen.has(id)) return;
         seen.add(id);
         list.push(p);
       });
-      list.sort((a, b) => dateKey(a.date) - dateKey(b.date) || a.measured - b.measured);
+      list.sort((a, b) => dateKey(a.date) - dateKey(b.date) || a.measured - b.measured
+        || String(a.batch || '').localeCompare(String(b.batch || '')));
       merged[k] = list;
     });
     return merged;
@@ -1566,17 +1578,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (p.measured != null && isFinite(p.measured)) vals.push(p.measured);
       if (p.claim != null && isFinite(p.claim)) {
         vals.push(p.claim);
-        vals.push(round4(p.claim * band.warnLo));
-        vals.push(round4(p.claim * band.warnHi));
-        vals.push(round4(p.claim * band.limitLo));
-        vals.push(round4(p.claim * band.limitHi));
+        vals.push(chartRound(p.claim * band.warnLo));
+        vals.push(chartRound(p.claim * band.warnHi));
+        vals.push(chartRound(p.claim * band.limitLo));
+        vals.push(chartRound(p.claim * band.limitHi));
       }
     });
     if (!vals.length) return null;
     let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    if (lo === hi) { const b = Math.max(Math.abs(lo) * 0.05, 0.05); lo -= b; hi += b; }
-    const span = hi - lo, pad = Math.max(span * 0.08, 0.02);
-    return { min: round4(lo - pad), max: round4(hi + pad) };
+    if (lo === hi) { const b = Math.max(Math.abs(lo) * 0.05, 1e-6); lo -= b; hi += b; }
+    const span = hi - lo;
+    const pad = span > 0 ? span * 0.08 : Math.max(Math.abs(lo) * 0.05, 1e-6);
+    return { min: chartRound(lo - pad), max: chartRound(hi + pad) };
   }
   function valAxScaling(yBounds) {
     if (!yBounds) return '<scaling><orientation val="minMax"/></scaling>';
@@ -1725,6 +1738,52 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     return m[1].charAt(0) === '/' ? m[1].slice(1) : 'xl/' + m[1].replace(/^\.\//, '');
   }
 
+  /* Template workbooks name helpers _data1…_data19 instead of _Allure. Follow
+     the chart series formulas to find which helper a visible tab actually uses. */
+  function helperNameFromChartXml(xml) {
+    if (!xml) return null;
+    const m = /'((?:[^']|'')+)'!/.exec(xml);
+    return m ? m[1].replace(/''/g, "'") : null;
+  }
+  async function templateHelperForTab(doc, visSheet) {
+    const drawing = await drawingPathOf(doc, visSheet.path);
+    if (!drawing) return null;
+    const charts = await chartPathsOf(doc, drawing);
+    for (let i = 0; i < charts.length; i++) {
+      const cp = charts[i];
+      if (!cp) continue;
+      const xml = await doc.partText(cp);
+      const name = helperNameFromChartXml(xml);
+      if (!name) continue;
+      const sh = doc.sheetNamed(name);
+      if (sh && sh.hidden && name.startsWith('_')) return sh;
+    }
+    return null;
+  }
+  async function adoptProductHelper(doc, vis, productName) {
+    const targetName = safeSheetName('_' + (productName || vis.name), doc.sheets.map(s => s.name));
+    let helper = doc.sheetNamed(targetName);
+    if (helper) return helper;
+    const template = await templateHelperForTab(doc, vis);
+    let els = [];
+    if (template) {
+      els = helperElements(await doc.partTextHead(template.path, 65536));
+    }
+    doc.addSheet(targetName, helperSheetXml(els.length ? els : [' '], {}, null), true);
+    return doc.sheetNamed(targetName);
+  }
+  function countPointsMap(ptsMap) {
+    let n = 0;
+    Object.keys(ptsMap || {}).forEach(k => { n += (ptsMap[k] || []).length; });
+    return n;
+  }
+  async function mergeTemplateHelperPoints(doc, vis, els, points, helperPath) {
+    const template = await templateHelperForTab(doc, vis);
+    if (!template || template.path === helperPath) return points;
+    const xml = await doc.partTextHead(template.path, 512000);
+    return appendPoints(points, parseHelperPoints(xml, els));
+  }
+
   /* =====================================================================
      ensureProduct — give one product a tab with a chart per analyte.
        product    the SampleType exactly as it is written into All Data
@@ -1768,10 +1827,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         helper = doc.sheets.find(h => h.hidden && h.name.startsWith('_')
           && global.trkCatalogKeyForType(h.name.slice(1)) === key);
       }
-      if (!helper) helper = doc.sheetNamed(safeSheetName('_' + product, []));
+      if (!helper) {
+        const drawing = await drawingPathOf(doc, vis.path);
+        if (drawing || await templateHelperForTab(doc, vis)) {
+          helper = await adoptProductHelper(doc, vis, product);
+        } else {
+          return { status: 'skipped', sheet: vis.name, added: [],
+                   reason: 'its chart tab has no drawing and no template helper to adopt' };
+        }
+      }
       if (!helper)
         return { status: 'skipped', sheet: vis.name, added: [],
-                 reason: 'its chart tab was not built by this app (no matching helper sheet)' };
+                 reason: 'could not create a helper sheet for this tab' };
       const drawing = await drawingPathOf(doc, vis.path);
       if (!drawing)
         return { status: 'skipped', sheet: vis.name, added: [], reason: 'its chart tab has no drawing' };
@@ -1848,7 +1915,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     opts = opts || {};
     const onProgress = opts.onProgress;
     const yieldToMain = opts.yieldToMain || (() => new Promise(r => setTimeout(r, 0)));
-    const out = { created: [], extended: [], skipped: [], rebuilt: 0, retargeted: 0 };
+    const out = { created: [], extended: [], skipped: [], stalled: [], rebuilt: 0, retargeted: 0, salvaged: 0 };
     const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
     const missingCol = need.find(k => columns[k] === undefined);
     if (missingCol) {
@@ -1890,7 +1957,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     }
     const visSheets = doc.sheets.filter(s => !s.hidden).sort((a, b) => syncTabScore(b) - syncTabScore(a));
 
-    function resolveHelper(s) {
+    function resolveHelperSync(s) {
       const hit = known[s.name.toLowerCase()];
       let helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
       if (!helper && keyFn) {
@@ -1900,9 +1967,20 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       }
       return { hit, helper };
     }
+    async function resolveHelperAsync(s) {
+      let { hit, helper } = resolveHelperSync(s);
+      if (!helper) {
+        const drawing = await drawingPathOf(doc, s.path);
+        if (drawing || await templateHelperForTab(doc, s)) {
+          helper = await adoptProductHelper(doc, s, (hit && hit.product) || s.name);
+        }
+      }
+      return { hit, helper };
+    }
     let syncTotal = 0;
     for (const s of visSheets) {
-      const { helper } = resolveHelper(s);
+      if (s.name === global.TRACKER_SHEET_NAME) continue;
+      const { helper } = await resolveHelperAsync(s);
       if (!helper) continue;
       let product = (known[s.name.toLowerCase()] && known[s.name.toLowerCase()].product) || s.name;
       if (keyFn) {
@@ -1916,14 +1994,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     let syncDone = 0;
 
     for (const s of visSheets) {
-      const hit = known[s.name.toLowerCase()];
-      let helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
-      if (!helper && keyFn) {
-        const sheetKey = keyFn(s.name);
-        helper = doc.sheets.find(h => h.hidden && h.name.startsWith('_')
-          && keyFn(h.name.slice(1)) === sheetKey);
-      }
-      if (!helper) continue;                       // not a product tab of ours
+      if (s.name === global.TRACKER_SHEET_NAME) continue;
+      const { hit, helper } = await resolveHelperAsync(s);
+      if (!helper) continue;
       let product = (hit && hit.product) || s.name;
       if (keyFn) {
         const pk = keyFn(product);
@@ -1968,17 +2041,22 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         bySym.set(sy, canonFn ? canonFn(product, h) : h);
       });
       const els = bySym.size ? [...bySym.values()] : fromHelper;
-      if (!els.length) continue;
+      if (!els.length) {
+        out.stalled.push({ tab: s.name, reason: 'no analytes defined for this product tab' });
+        continue;
+      }
       let all = pointsFor(rows, columns, product, els, matchNames);
+      const fromRowsOnly = countPointsMap(all);
+      all = await mergeTemplateHelperPoints(doc, s, els, all, helper.path);
       all = await mergeHiddenHelperHistories(doc, els, all, prodKey, keyFn, helper.path);
-      /* Drop analytes this product has no readings for. A sample type declares
-         analytes it does not always measure, and each one used to get its own
-         empty chart — tabs ended up buried under plots of nothing. Keep the full
-         set only when the product has no data at all, so a tab never blanks out
-         entirely; an analyte that starts being measured comes back on the next
-         commit via ensureProduct(). */
+      const salvagedHere = countPointsMap(all) - fromRowsOnly;
+      if (salvagedHere > 0) out.salvaged += salvagedHere;
       const live = els.filter(e => (all[e.toLowerCase()] || []).length);
-      const keep = live.length ? live : els;
+      if (!live.length) {
+        out.stalled.push({ tab: s.name, reason: 'no plottable measured values — tab left unchanged' });
+        continue;
+      }
+      const keep = live;
       const points = {};
       keep.forEach(e => { points[e.toLowerCase()] = all[e.toLowerCase()] || []; });
       doc.setPart(helper.path, helperSheetXml(keep, points, bands));
@@ -2700,7 +2778,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.9';   // bump on each release
+const APP_VERSION='v5.17.0';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3630,14 +3708,19 @@ function catalogKeyForType(type){
 const TRK_MERGE_KEY='fertilex 8';
 const TRK_MERGE_CANON={'fertilex 8':'Fertilex-8'};
 const TRK_MERGE_ALIASES={'qc':'fertilex 8','fertilex8':'fertilex 8'};
-function isFertilexQcType(tn){
+function isFortexProduct(tn){
   if(!tn) return false;
+  return tn==='fortex'||tn.startsWith('fortex /')||tn.startsWith('fortex ');
+}
+function isFertilexQcType(tn){
+  if(!tn||isFortexProduct(tn)) return false;
   if(tn==='qc'||tn===TRK_MERGE_KEY) return true;
   if(tn.startsWith('fertilex')) return true;
   return false;
 }
 function trackerCatalogKey(type){
   const tn=trackerNorm(type);
+  if(isFortexProduct(tn)) return catalogKeyForType(type);
   if(isFertilexQcType(tn)) return TRK_MERGE_KEY;
   if(TRK_MERGE_ALIASES[tn]) return TRK_MERGE_ALIASES[tn];
   const base=catalogKeyForType(type);
@@ -5036,10 +5119,12 @@ function sampleTypesInData(rows,colFor){
 function isFertilexQcSheetName(name){
   const s=String(name||'').trim();
   if(!s||s===TRACKER_SHEET) return false;
+  const tn=trackerNorm(s);
+  if(isFortexProduct(tn)) return false;
   if(/^qc$/i.test(s)) return true;
   const compact=s.replace(/[\s_-]+/g,'').toLowerCase();
   if(compact.indexOf('fertilex')===0) return true;
-  return isFertilexQcType(trackerNorm(s));
+  return isFertilexQcType(tn);
 }
 function tabGroupKeyForMerge(name, catalogKey){
   if(isFertilexQcSheetName(name)||catalogKey===TRK_MERGE_KEY) return TRK_MERGE_KEY;
@@ -5690,10 +5775,17 @@ async function rebuildTrackerCharts(msg, opts){
     const b=loadBands();
     trkProgressUpdate(100, 'Done');
     msg.style.color='#2e7d32';
-    msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s)'
+    let doneMsg='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s)'
       +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
+    if(sync.salvaged) doneMsg+=' Kept '+sync.salvaged+' point(s) that All Data no longer explains — salvaged history.';
+    if(sync.stalled&&sync.stalled.length){
+      doneMsg+=' ⚠ '+sync.stalled.length+' tab(s) had nothing to plot and were left untouched.';
+      sync.stalled.forEach(s=>addLog('TRACKER','Tab "'+s.tab+'" unchanged: '+s.reason));
+    }
+    msg.textContent=doneMsg;
     addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"',
-      {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct,
+      {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct, salvaged:sync.salvaged||0,
+        stalled:sync.stalled||[],
         hiddenTabs:collapseStats?collapseStats.hidden:[],
         normalized:collapseStats?collapseStats.normalized:0,
         elementsNormalized:elNorm, claimsNormalized:claimNorm});
@@ -6430,6 +6522,7 @@ let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while ed
 
 function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
+(typeof self!=='undefined'?self:window).TRACKER_SHEET_NAME=TRACKER_SHEET;
 (typeof self!=='undefined'?self:window).trkMergeCanon=TRK_MERGE_CANON;
 Object.defineProperty(typeof self!=='undefined'?self:window,'trkTabPick',{get:()=>TRK_TAB_PICK});
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
