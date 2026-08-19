@@ -1264,12 +1264,42 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     if (m) return +m[1] * 10000 + +m[2] * 100 + +m[3];
     m = /^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/.exec(s);
     if (m) return +m[3] * 10000 + +m[1] * 100 + +m[2];
+    if (typeof v === 'number' && isFinite(v)) {
+      const d = isoFromExcelSerial(v);
+      if (d) return dateKey(d);
+    }
     return 0;
+  }
+  function excelDateSerial(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return null;
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    let d;
+    if (m) d = new Date(+m[1], +m[2] - 1, +m[3]);
+    else {
+      m = /^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/.exec(s);
+      if (m) d = new Date(+m[3], +m[1] - 1, +m[2]);
+    }
+    if (!d || isNaN(d)) return null;
+    return (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(1899, 11, 30)) / 86400000;
+  }
+  function isoFromExcelSerial(serial) {
+    if (!isFinite(serial)) return '';
+    const ms = Date.UTC(1899, 11, 30) + Math.round(serial * 86400000);
+    const d = new Date(ms);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
+      + '-' + String(d.getUTCDate()).padStart(2, '0');
   }
   function cell(ref, v) {
     if (v === null || v === undefined || v === '') return '';
     if (typeof v === 'number') return '<c r="' + ref + '"><v>' + v + '</v></c>';
     return '<c r="' + ref + '" t="inlineStr"><is><t>' + esc(v) + '</t></is></c>';
+  }
+  function cellDate(ref, v) {
+    const serial = excelDateSerial(v);
+    if (serial == null) return cell(ref, v);
+    return '<c r="' + ref + '"><v>' + round4(serial) + '</v></c>';
   }
   // the last row a packed helper will occupy for these points
   function helperDepth(elements, points) {
@@ -1328,7 +1358,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const base = b * BLOCK;
         const claim = seriesClaims[el.toLowerCase()];
         const at = k => claim === null ? '' : round4(claim * k);
-        row += cell(colName(base + 1) + r, p.date)
+        row += cellDate(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
           + cell(colName(base + 4) + r, at(band.warnLo))
@@ -1425,6 +1455,71 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     return out;
   }
 
+  function cellRefValue(rowXml, ref) {
+    const re = new RegExp('<c r="' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*(?:/>|>([\\s\\S]*?)</c>)');
+    const m = re.exec(rowXml);
+    if (!m) return null;
+    const chunk = m[0];
+    const v = /<v>([^<]*)<\/v>/.exec(chunk);
+    if (v) return v[1];
+    const t = /<is><t>([^<]*)<\/t><\/is>/.exec(chunk) || /<t[^>]*>([^<]*)<\/t>/.exec(chunk);
+    return t ? t[1] : null;
+  }
+  /* Read packed points already sitting on a helper — rebuild must not discard
+     history that lived only on a duplicate tab's helper after tabs merge. */
+  function parseHelperPoints(xml, elements) {
+    const out = {};
+    elements.forEach(el => { out[el.toLowerCase()] = []; });
+    if (!xml || !elements.length) return out;
+    const rowRe = /<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+    let rm;
+    while ((rm = rowRe.exec(xml))) {
+      const rNum = +rm[1];
+      if (rNum < 2) continue;
+      const rowXml = rm[2];
+      elements.forEach((el, b) => {
+        const base = b * BLOCK;
+        const rawDate = cellRefValue(rowXml, colName(base + 1) + rNum);
+        const measured = num(cellRefValue(rowXml, colName(base + 2) + rNum));
+        if (measured === null || rawDate == null || rawDate === '') return;
+        let date = rawDate;
+        if (/^[\d.]+$/.test(String(rawDate))) date = isoFromExcelSerial(+rawDate) || rawDate;
+        out[el.toLowerCase()].push({ date: String(date).trim(), measured: measured, claim: null });
+      });
+    }
+    Object.keys(out).forEach(k => out[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
+    return out;
+  }
+  function mergePointSets(primary, extra) {
+    const merged = {};
+    const keys = new Set(Object.keys(primary || {}).concat(Object.keys(extra || {})));
+    keys.forEach(k => {
+      const byDate = new Map();
+      (extra && extra[k] || []).forEach(p => {
+        if (!p || !p.date) return;
+        byDate.set(dateKey(p.date), p);
+      });
+      (primary && primary[k] || []).forEach(p => {
+        if (!p || !p.date) return;
+        byDate.set(dateKey(p.date), p);
+      });
+      merged[k] = [...byDate.values()].sort((a, b) => dateKey(a.date) - dateKey(b.date));
+    });
+    return merged;
+  }
+  async function mergeHelperHistories(doc, els, points, prodKey, keyFn, skipPath) {
+    let merged = points;
+    for (const h of doc.sheets) {
+      if (!h.hidden || !h.name.startsWith('_')) continue;
+      if (h.path === skipPath) continue;
+      if (keyFn && keyFn(h.name.slice(1)) !== prodKey) continue;
+      const xml = await doc.partTextHead(h.path, 512000);
+      merged = mergePointSets(merged, parseHelperPoints(xml, els));
+    }
+    const own = await doc.partTextHead(skipPath, 512000);
+    return mergePointSets(parseHelperPoints(own, els), merged);
+  }
+
   /* ---------------- one chart ---------------- */
   /* Only the measured series carries markers. The reference lines are limits,
      not readings, so dotting them implies measurements that don't exist — and a
@@ -1462,39 +1557,26 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      row 2 down, and a range of 4999 categories against 16 points makes Excel
      spread the categories over the full width — the data ends up crushed into
      the left edge of the plot with no axis labels. */
-  // Y-axis bounds: snug around limits/outliers so charts aren't zoomed out to zero.
-  function axisBoundsForElement(pts, bands) {
-    if (!pts || !pts.length) return null;
-    const band = bandsOf(bands);
-    const vals = [];
-    pts.forEach(p => {
-      if (p.measured != null && isFinite(p.measured)) vals.push(p.measured);
-      if (p.claim != null && isFinite(p.claim)) {
-        vals.push(p.claim);
-        vals.push(round4(p.claim * band.warnLo));
-        vals.push(round4(p.claim * band.warnHi));
-        vals.push(round4(p.claim * band.limitLo));
-        vals.push(round4(p.claim * band.limitHi));
-      }
-    });
-    if (!vals.length) return null;
-    let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    if (lo === hi) { const b = Math.max(Math.abs(lo) * 0.05, 0.05); lo -= b; hi += b; }
-    const span = hi - lo, pad = Math.max(span * 0.06, 0.02);
-    return { min: round4(lo - pad), max: round4(hi + pad) };
+  function catAxScaling(pts) {
+    if (!pts || !pts.length) return '<scaling><orientation val="minMax"/></scaling>';
+    const serials = pts.map(p => excelDateSerial(p.date)).filter(v => v != null);
+    if (!serials.length) return '<scaling><orientation val="minMax"/></scaling>';
+    let lo = Math.min.apply(null, serials), hi = Math.max.apply(null, serials);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    else {
+      const pad = Math.max((hi - lo) * 0.03, 0.5);
+      lo -= pad; hi += pad;
+    }
+    return '<scaling><orientation val="minMax"/><min val="' + round4(lo) + '"/><max val="' + round4(hi) + '"/></scaling>';
   }
-  function valAxScaling(yBounds) {
-    if (!yBounds) return '<scaling><orientation val="minMax"/></scaling>';
-    return '<scaling><orientation val="minMax"/><min val="' + yBounds.min + '"/><max val="' + yBounds.max + '"/></scaling>';
-  }
-  function chartXml(product, element, helper, block, lastRow, yBounds) {
+  function chartXml(product, element, helper, block, lastRow, catPts) {
     const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
     const cDate = colName(base + 1), cMeas = colName(base + 2), cClaim = colName(base + 3);
     const cWarnLo = colName(base + 4), cWarnHi = colName(base + 5);
     const cLimLo = colName(base + 6), cLimHi = colName(base + 7);
     const s = (i, col, color, dashed, marker) => series(i, helper, cDate, col, color, dashed, last, marker);
-    const yScale = valAxScaling(yBounds);
+    const catScale = catAxScaling(catPts);
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
       + titleEl(product + ' - ' + element)
       + '<plotArea><lineChart><grouping val="standard"/>'
@@ -1505,18 +1587,19 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       + s(4, cClaim, COLOR.claim, false, false)
       + s(5, cMeas, COLOR.measured, false, true)
       + '<axId val="10"/><axId val="100"/></lineChart>'
-      + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling>'
+      + '<catAx><axId val="10"/>' + catScale
       + '<delete val="0"/><axPos val="b"/>'
+      + '<numFmt formatCode="yyyy-mm-dd" sourceLinked="1"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
-      + '<crossAx val="100"/><crosses val="autoZero"/><auto val="1"/><lblAlgn val="ctr"/>'
+      + '<crossAx val="100"/><crosses val="min"/><auto val="1"/><lblAlgn val="ctr"/>'
       + '<lblOffset val="100"/><noMultiLvlLbl val="0"/></catAx>'
-      + '<valAx><axId val="100"/>' + yScale
+      + '<valAx><axId val="100"/><scaling><orientation val="minMax"/></scaling>'
       + '<delete val="0"/><axPos val="l"/><majorGridlines/>'
       + '<numFmt formatCode="General" sourceLinked="1"/>'
       + '<majorTickMark val="out"/><minorTickMark val="none"/><tickLblPos val="nextTo"/>'
-      + '<crossAx val="10"/><crosses val="autoZero"/><crossBetween val="between"/></valAx></plotArea>'
+      + '<crossAx val="10"/><crosses val="min"/><crossBetween val="between"/></valAx></plotArea>'
       + '<legend><legendPos val="r"/><overlay val="0"/></legend>'
-      + '<plotVisOnly val="1"/><dispBlanksAs val="gap"/></chart></chartSpace>';
+      + '<plotVisOnly val="1"/><dispBlanksAs val="gap"/><showDataTable val="0"/></chart></chartSpace>';
   }
 
   // charts sit two to a row: columns A and K, every 16 rows, under the title
@@ -1749,7 +1832,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      older build. Tabs with no matching helper are somebody else's and are left
      strictly alone.
      ===================================================================== */
-  async function sync(doc, products, columns, rows, bands) {
+  async function sync(doc, products, columns, rows, bands, opts) {
+    opts = opts || {};
+    const onProgress = opts.onProgress;
+    const yieldToMain = opts.yieldToMain || (() => new Promise(r => setTimeout(r, 0)));
     const out = { created: [], extended: [], skipped: [], rebuilt: 0, retargeted: 0 };
     const need = ['Date', 'SampleType', 'Element', 'Measured', 'LabelClaim'];
     const missingCol = need.find(k => columns[k] === undefined);
@@ -1776,6 +1862,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if (r.status === 'created') out.created.push(r.sheet);
       else if (r.status === 'extended') out.extended.push({ sheet: r.sheet, added: r.added });
       else if (r.status === 'skipped') out.skipped.push({ product: p.name, reason: r.reason });
+      await yieldToMain();
     }
 
     function syncTabScore(sheet) {
@@ -1790,6 +1877,31 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       return score;
     }
     const visSheets = doc.sheets.filter(s => !s.hidden).sort((a, b) => syncTabScore(b) - syncTabScore(a));
+
+    function resolveHelper(s) {
+      const hit = known[s.name.toLowerCase()];
+      let helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
+      if (!helper && keyFn) {
+        const sheetKey = keyFn(s.name);
+        helper = doc.sheets.find(h => h.hidden && h.name.startsWith('_')
+          && keyFn(h.name.slice(1)) === sheetKey);
+      }
+      return { hit, helper };
+    }
+    let syncTotal = 0;
+    for (const s of visSheets) {
+      const { helper } = resolveHelper(s);
+      if (!helper) continue;
+      let product = (known[s.name.toLowerCase()] && known[s.name.toLowerCase()].product) || s.name;
+      if (keyFn) {
+        const pk = keyFn(product);
+        if (global.trkMergeCanon && global.trkMergeCanon[pk]) product = global.trkMergeCanon[pk];
+      }
+      const prodKey = keyFn ? keyFn(product) : product.toLowerCase();
+      if (syncedKeys.has(prodKey) || syncedHelpers.has(helper.path)) continue;
+      syncTotal++;
+    }
+    let syncDone = 0;
 
     for (const s of visSheets) {
       const hit = known[s.name.toLowerCase()];
@@ -1845,7 +1957,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       });
       const els = bySym.size ? [...bySym.values()] : fromHelper;
       if (!els.length) continue;
-      const all = pointsFor(rows, columns, product, els, matchNames);
+      let all = pointsFor(rows, columns, product, els, matchNames);
+      all = await mergeHelperHistories(doc, els, all, prodKey, keyFn, helper.path);
       /* Drop analytes this product has no readings for. A sample type declares
          analytes it does not always measure, and each one used to get its own
          empty chart — tabs ended up buried under plots of nothing. Keep the full
@@ -1874,8 +1987,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           if (!charts[k]) continue;
           const elKey = keep[k].toLowerCase();
           const n = (points[elKey] || []).length;
-          const yBounds = axisBoundsForElement(points[elKey] || [], bands);
-          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1, yBounds));
+          doc.setPart(charts[k], chartXml(product, keep[k], helper.name, k, n + 1, points[elKey] || []));
           anchors += anchor(k, ids[k]);
           out.retargeted++;
         }
@@ -1888,6 +2000,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           + anchors + '</wsDr>');
       }
       out.rebuilt++;
+      syncDone++;
+      if (onProgress) onProgress({ phase: 'sync', done: syncDone, total: syncTotal, label: product });
+      await yieldToMain();
     }
     return out;
   }
@@ -2300,6 +2415,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button id="trkCommit" class="act" onclick="requestCommitToTracker()">Commit selected to tracker</button>
       <span id="trkMsg" style="font-size:12px;color:#0f4c81"></span>
     </div>
+    <div id="trkProgressWrap" style="display:none;margin-top:10px">
+      <div style="height:10px;background:#e8ecf0;border-radius:5px;overflow:hidden">
+        <div id="trkProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#0f4c81,#1a6cb0);transition:width .25s ease"></div>
+      </div>
+      <div id="trkProgressLabel" style="font-size:11px;color:#666;margin-top:5px"></div>
+    </div>
     </div>
   </div>
 </div>
@@ -2562,7 +2683,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.7';   // bump on each release
+const APP_VERSION='v5.16.8';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5482,6 +5603,24 @@ async function applyTrendBands(){
     msg.textContent='✅ Saved. They will be applied when you choose a tracker file and commit.'; return; }
   await rebuildTrackerCharts(msg);
 }
+const trkYield=()=>new Promise(r=>setTimeout(r,0));
+function trkProgressShow(on){
+  const w=document.getElementById('trkProgressWrap');
+  if(w) w.style.display=on?'block':'none';
+  if(!on){
+    const bar=document.getElementById('trkProgressBar');
+    const lbl=document.getElementById('trkProgressLabel');
+    if(bar) bar.style.width='0%';
+    if(lbl) lbl.textContent='';
+  }
+}
+function trkProgressUpdate(pct,label){
+  const bar=document.getElementById('trkProgressBar');
+  const lbl=document.getElementById('trkProgressLabel');
+  const n=Math.min(100,Math.max(0,pct));
+  if(bar) bar.style.width=n+'%';
+  if(lbl) lbl.textContent=label||'';
+}
 // Redraw every chart from what is already in All Data — also the repair path
 // for a workbook edited by hand or written by an older build.
 async function rebuildTrackerCharts(msg, opts){
@@ -5489,30 +5628,50 @@ async function rebuildTrackerCharts(msg, opts){
   if(!XlsxPatch.supported()){ msg.style.color='#a33';
     msg.textContent='Redrawing charts needs Chrome or Edge 103 or newer.'; return; }
   const repair=!!opts.repair||!!opts.collapse;
+  trkProgressShow(true);
+  trkProgressUpdate(2, repair?'Starting rebuild…':'Starting redraw…');
   msg.style.color='#0f4c81'; msg.textContent=repair?'Rebuilding charts from All Data…':'Redrawing charts…';
   try{
     const perm={mode:'readwrite'};
     if((await TRACKER_HANDLE.queryPermission(perm))!=='granted' && (await TRACKER_HANDLE.requestPermission(perm))!=='granted')
       throw new Error('Write permission to the tracker file was denied.');
     if(!(await TRACKER_HANDLE.getFile()).size) throw new Error('the tracker file is empty — commit or import something first.');
+    trkProgressUpdate(8, 'Reading tracker workbook…');
+    await trkYield();
     const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
-      ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+      ()=>{ trkProgressUpdate(8, 'Waiting for the file to finish syncing…'); msg.textContent='Waiting for the file to finish syncing…'; });
     if(!st.headers) throw new Error('the tracker sheet has no header row yet.');
     const colFor=trackerColMap(st.headers);
     let collapseStats=null, elNorm=0, claimNorm=0;
     if(repair){
+      trkProgressUpdate(15, 'Merging duplicate tabs…');
+      await trkYield();
       collapseStats=collapseTrackerDuplicates(st.doc,colFor);
+      trkProgressUpdate(20, 'Normalizing elements and claims…');
+      await trkYield();
       elNorm=normalizeTrackerElements(st.doc,colFor);
       claimNorm=normalizeTrackerClaims(st.doc,colFor);
       msg.textContent='Rebuilding charts…';
     }
     const rows=st.doc.dataRows();
     const products=repair?productsFromTrackerData(rows,colFor):[];
-    const sync=await QcCharts.sync(st.doc, products, colFor, rows, loadBands());
+    trkProgressUpdate(25, 'Redrawing charts…');
+    await trkYield();
+    const sync=await QcCharts.sync(st.doc, products, colFor, rows, loadBands(), {
+      yieldToMain: trkYield,
+      onProgress: ({done,total,label})=>{
+        const pct=25+(total?((done/total)*60):0);
+        trkProgressUpdate(pct, 'Charting '+(label||'product')+' ('+done+' of '+total+')…');
+        msg.textContent='Rebuilding charts… '+done+' / '+total;
+      }
+    });
+    trkProgressUpdate(88, 'Saving workbook…');
+    await trkYield();
     alphabetizeTrackerTabs(st.doc);
     await writeTrackerWorkbook(TRACKER_HANDLE, st.doc,
-      ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+      ()=>{ trkProgressUpdate(92, 'Waiting for the file to finish syncing…'); msg.textContent='Waiting for the file to finish syncing…'; });
     const b=loadBands();
+    trkProgressUpdate(100, 'Done');
     msg.style.color='#2e7d32';
     msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s)'
       +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
@@ -5525,6 +5684,8 @@ async function rebuildTrackerCharts(msg, opts){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Redraw failed: '+m;
     addLog('ERROR','Chart redraw failed: '+m);
+  }finally{
+    setTimeout(()=>trkProgressShow(false), 1200);
   }
 }
 function closeTracker(){ document.getElementById('trackerModal').classList.remove('open'); }
