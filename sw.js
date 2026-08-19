@@ -1,4 +1,4 @@
-const CACHE="icp-reporter-v5.16.9";
+const CACHE="icp-reporter-v5.16.10";
 const ASSETS=["./","./index.html","./manifest.json","./icon-192.png","./icon-512.png"];
 
 self.addEventListener("install",e=>{
