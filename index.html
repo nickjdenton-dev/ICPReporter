@@ -1293,6 +1293,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     const band = bandsOf(bands);
     const depth = helperDepth(elements, points);
     const lastCol = colName(Math.max(1, elements.length * BLOCK));
+    const seriesClaims = {};
+    elements.forEach(el => {
+      const pts = points[el.toLowerCase()] || [];
+      let c = null;
+      for (let i = pts.length - 1; i >= 0; i--) {
+        if (pts[i].claim != null) { c = pts[i].claim; break; }
+      }
+      seriesClaims[el.toLowerCase()] = c;
+    });
     const out = [];
     out.push('<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
       '<sheetPr><outlinePr summaryBelow="1" summaryRight="1"/><pageSetUpPr/></sheetPr>',
@@ -1317,7 +1326,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const p = (points[el.toLowerCase()] || [])[r - 2];
         if (!p) return;
         const base = b * BLOCK;
-        const claim = p.claim;
+        const claim = seriesClaims[el.toLowerCase()];
         const at = k => claim === null ? '' : round4(claim * k);
         row += cell(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
@@ -1338,6 +1347,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   function pointsFor(rows, cols, product, elements, matchNames) {
     const canonFn = global.trkCanonElementForType;
     const symFn = global.trkElSymbol;
+    const keyFn = global.trkCatalogKeyForType;
+    const claimFn = global.trkUnifiedClaimForElement;
+    const prodKey = keyFn ? keyFn(product) : null;
     const want = {};
     const symToKey = {};
     elements.forEach(e => {
@@ -1350,8 +1362,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const t = String(n == null ? '' : n).trim().toLowerCase();
       if (t) matchSet.add(t);
     });
+    function rowMatches(st){
+      const t=String(st==null?'':st).trim();
+      if(!t) return false;
+      if(matchSet.has(t.toLowerCase())) return true;
+      return prodKey && keyFn && keyFn(t)===prodKey;
+    }
     rows.forEach(r => {
-      if (!matchSet.has(String(r[cols.SampleType] == null ? '' : r[cols.SampleType]).trim().toLowerCase())) return;
+      if (!rowMatches(r[cols.SampleType])) return;
       const rowEl = String(r[cols.Element] == null ? '' : r[cols.Element]).trim();
       let target = rowEl.toLowerCase();
       if (!want[target]) {
@@ -1371,6 +1389,16 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
                       measured: measured, claim: num(r[cols.LabelClaim]) });
     });
     Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
+    Object.keys(want).forEach(k => {
+      const pts = want[k];
+      let canon = claimFn ? claimFn(rows, cols, product, k, matchNames) : null;
+      if (canon == null) {
+        for (let i = pts.length - 1; i >= 0; i--) {
+          if (pts[i].claim != null) { canon = pts[i].claim; break; }
+        }
+      }
+      if (canon != null) pts.forEach(p => { p.claim = canon; });
+    });
     return want;
   }
 
@@ -2500,7 +2528,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.0';   // bump on each release
+const APP_VERSION='v5.16.3';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3375,7 +3403,7 @@ function matchCatalog(type){
   return {entry:null, suggestion:best&&best.dist<=6?best.disp:null, distance:best?best.dist:null};
 }
 // Hyphens/underscores count as spaces so "Best-K" and "Best K" resolve together.
-function trackerNorm(s){ return norm(String(s).replace(/[-_]+/g,' ')); }
+function trackerNorm(s){ return norm(String(s).replace(/[-_]+/g,' ').replace(/\s+\d+$/,'')); }
 function matchCatalogLoose(type){
   let r=matchCatalog(type);
   if(r.entry) return r;
@@ -3425,21 +3453,29 @@ function catalogKeyForType(type){
   if(prefix) return prefix;
   return t;
 }
-// Tracker-only merges: historical chart tab / SampleType spellings that chart together.
-// Fertilex-8 was used for QC reference runs on the trend charts; QC controls are
-// labeled "QC" going forward. Product Fertilex-8 samples use sample type Fertilex-8
-// in reports — only rows already in the tracker under the old name merge here.
-const TRK_MERGE_ALIASES={'fertilex 8':'qc','fertilex8':'qc'};
+// Tracker-only merges: Fertilex product runs and QC reference runs chart together on
+// one tab — always "Fertilex-8", never a separate QC tab.
+const TRK_MERGE_KEY='fertilex 8';
+const TRK_MERGE_CANON={'fertilex 8':'Fertilex-8'};
+const TRK_MERGE_ALIASES={'qc':'fertilex 8','fertilex8':'fertilex 8'};
+function isFertilexQcType(tn){
+  if(!tn) return false;
+  if(tn==='qc'||tn===TRK_MERGE_KEY) return true;
+  if(tn.startsWith('fertilex')) return true;
+  return false;
+}
 function trackerCatalogKey(type){
   const tn=trackerNorm(type);
+  if(isFertilexQcType(tn)) return TRK_MERGE_KEY;
   if(TRK_MERGE_ALIASES[tn]) return TRK_MERGE_ALIASES[tn];
   const base=catalogKeyForType(type);
+  if(isFertilexQcType(base)) return TRK_MERGE_KEY;
   if(TRK_MERGE_ALIASES[base]) return TRK_MERGE_ALIASES[base];
   return base;
 }
 function trackerDisplayName(type){
   const key=trackerCatalogKey(type);
-  if(key==='qc') return trkDisplayName('QC');
+  if(TRK_MERGE_CANON[key]) return trkType(TRK_MERGE_CANON[key]);
   return trkDisplayName(type);
 }
 function isDistinctProductVariant(a,b){
@@ -4698,6 +4734,24 @@ const TRK_FIELDS=[
 const TRK_HEADERS=TRK_FIELDS.map(f=>f[0]);
 const INSTRUMENT_NAME='Agilent ICP-OES 5800';
 const trkNum=v=>{ const n=parseFloat(v); return isFinite(n)?n:''; };
+function trkClaimNum(v){
+  if(typeof v==='number') return isFinite(v)?v:null;
+  const s=String(v==null?'':v).trim().replace(/,/g,'');
+  if(!s) return null;
+  const n=parseFloat(s);
+  return isFinite(n)?n:null;
+}
+function trackerRecency(imported, date){
+  const im=String(imported==null?'':imported).trim();
+  if(im){
+    let t=Date.parse(im.replace(' ','T'));
+    if(!isFinite(t)) t=Date.parse(im.replace(' ','T')+'Z');
+    if(isFinite(t)) return t;
+  }
+  const d=trkDateIso(date);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)) return Date.parse(d+'T12:00:00Z');
+  return 0;
+}
 /* ---- one spelling per analyte, one format per date ----
    The charts match on the Element string, so "Phosphorus (P2O5)" and
    "Phosphorus (P)" are two different analytes as far as Excel is concerned —
@@ -4931,7 +4985,11 @@ function scoreKeeperTab(tab,rows,colFor){
   const canon=trackerDisplayName(tab.sheet).toLowerCase();
   if(tab.sheet.toLowerCase()===canon) score+=100;
   if(!/\s+\d+$/.test(tab.sheet)) score+=50;
-  if(tab.key==='qc'&&tab.sheet.toLowerCase()==='qc') score+=150;
+  if(tab.key===TRK_MERGE_KEY){
+    const sn=trackerNorm(tab.sheet);
+    if(sn===TRK_MERGE_KEY||/^fertilex-8$/i.test(tab.sheet.replace(/\s/g,''))) score+=250;
+    else if(sn==='qc') score+=20;
+  }
   if(colFor&&colFor.SampleType!==undefined){
     rows.forEach(r=>{
       const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
@@ -4969,6 +5027,88 @@ function normalizeTrackerElements(doc, colFor){
   });
   return n;
 }
+/* ---- unify label claims per product + analyte ----
+   Trend reference lines (claim / warn / limit) come from LabelClaim on each row.
+   Older commits and imports often left it blank, so charts show measured points
+   with no green/orange/red lines. For each sample type + element, take the claim
+   from the most recently uploaded row and apply it to every row in that group. */
+function unifiedClaimForProductElement(rows, colFor, product, element, matchNames){
+  if(!colFor||colFor.LabelClaim===undefined||colFor.Element===undefined) return null;
+  let sym=trkElSymbol(element);
+  if(!sym){
+    const s=String(element==null?'':element).trim();
+    if(/^[A-Z][a-z]?$/.test(s)) sym=s;
+  }
+  if(!sym) return null;
+  const prodKey=trackerCatalogKey(product);
+  const matchSet=new Set();
+  [product].concat(matchNames||[]).forEach(n=>{
+    const t=String(n==null?'':n).trim().toLowerCase();
+    if(t) matchSet.add(t);
+  });
+  function rowMatches(st){
+    const t=String(st==null?'':st).trim();
+    if(!t) return false;
+    if(matchSet.has(t.toLowerCase())) return true;
+    return trackerCatalogKey(t)===prodKey;
+  }
+  let latest=null, bestRec=-1;
+  rows.forEach(r=>{
+    if(!rowMatches(r[colFor.SampleType])) return;
+    const rowEl=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
+    if(!rowEl||trkElSymbol(rowEl)!==sym) return;
+    const c=trkClaimNum(r[colFor.LabelClaim]);
+    if(c===null) return;
+    const rec=trackerRecency(colFor.ImportedAt!==undefined?r[colFor.ImportedAt]:'',
+      colFor.Date!==undefined?r[colFor.Date]:'');
+    if(rec>=bestRec){ bestRec=rec; latest=c; }
+  });
+  if(latest===null){
+    const lookup=matchNames&&matchNames.length?matchNames[0]:product;
+    const hit=analytesForType(lookup).find(a=>a.el===sym);
+    if(!hit&&lookup!==product){
+      const hit2=analytesForType(product).find(a=>a.el===sym);
+      if(hit2&&hit2.claim!=null) latest=hit2.claim;
+    }else if(hit&&hit.claim!=null) latest=hit.claim;
+  }
+  return latest;
+}
+function normalizeTrackerClaims(doc, colFor){
+  if(!colFor||colFor.LabelClaim===undefined||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
+  const rows=doc.dataRows();
+  const groups=new Map();
+  rows.forEach((row,i)=>{
+    const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
+    const el=String(row[colFor.Element]==null?'':row[colFor.Element]).trim();
+    if(!st||!el) return;
+    const canonEl=canonicalElementForType(st, el);
+    const sym=trkElSymbol(canonEl)||trkElSymbol(el);
+    if(!sym) return;
+    const gkey=trackerCatalogKey(st)+'\u0001'+sym;
+    if(!groups.has(gkey)) groups.set(gkey,{st, sym, matchNames:new Set([st]), entries:[]});
+    const g=groups.get(gkey);
+    g.matchNames.add(st);
+    g.entries.push({i,
+      claim:trkClaimNum(row[colFor.LabelClaim]),
+      recency:trackerRecency(colFor.ImportedAt!==undefined?row[colFor.ImportedAt]:'',
+        colFor.Date!==undefined?row[colFor.Date]:'')});
+  });
+  let n=0;
+  groups.forEach(g=>{
+    const latestClaim=unifiedClaimForProductElement(rows, colFor, g.st, elName||g.sym,
+      [...g.matchNames, trackerDisplayName(g.st)]);
+    if(latestClaim===null) return;
+    const canon=trkNum(latestClaim);
+    g.entries.forEach(e=>{
+      const cur=trkClaimNum(rows[e.i][colFor.LabelClaim]);
+      if(cur!==latestClaim){
+        doc.updateRow(e.i,{[colFor.LabelClaim]:canon});
+        n++;
+      }
+    });
+  });
+  return n;
+}
 function productsFromTrackerData(rows,colFor){
   const byKey={};
   if(!colFor||colFor.SampleType===undefined||colFor.Element===undefined) return [];
@@ -4976,7 +5116,7 @@ function productsFromTrackerData(rows,colFor){
     const st=String(r[colFor.SampleType]==null?'':r[colFor.SampleType]).trim();
     if(!st) return;
     const key=trackerCatalogKey(st);
-    if(!byKey[key]) byKey[key]={key, name:trkType(trackerDisplayName(st)), elements:new Map(), matchNames:new Set()};
+    if(!byKey[key]) byKey[key]={key, name:trkType(TRK_MERGE_CANON[key]||trackerDisplayName(st)), elements:new Map(), matchNames:new Set()};
     byKey[key].matchNames.add(st);
     const el=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
     if(!el) return;
@@ -5019,7 +5159,7 @@ function collapseTrackerDuplicates(doc,colFor){
   groups.forEach((tabs,key)=>{
     const keeper=pickKeeperTab(tabs,rows,colFor);
     if(!keeper) return;
-    const canon=trkType(trackerDisplayName(keeper.sheet));
+    const canon=trkType(TRK_MERGE_CANON[key]||trackerDisplayName(keeper.sheet));
     keeperMap.set(key,canon);
     TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
     tabs.forEach(t=>{
@@ -5205,10 +5345,11 @@ async function rebuildTrackerCharts(msg, opts){
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
     if(!st.headers) throw new Error('the tracker sheet has no header row yet.');
     const colFor=trackerColMap(st.headers);
-    let collapseStats=null, elNorm=0;
+    let collapseStats=null, elNorm=0, claimNorm=0;
     if(repair){
       collapseStats=collapseTrackerDuplicates(st.doc,colFor);
       elNorm=normalizeTrackerElements(st.doc,colFor);
+      claimNorm=normalizeTrackerClaims(st.doc,colFor);
       msg.textContent='Rebuilding charts…';
     }
     const rows=st.doc.dataRows();
@@ -5224,13 +5365,15 @@ async function rebuildTrackerCharts(msg, opts){
       +(collapseStats&&collapseStats.hidden.length?' — merged duplicate tab(s): '+collapseStats.hidden.join(', '):'')
       +(collapseStats&&collapseStats.normalized?' — normalized '+collapseStats.normalized+' sample type(s) in All Data':'')
       +(elNorm?' — aligned '+elNorm+' analyte label(s) with sample types':'')
+      +(claimNorm?' — unified '+claimNorm+' label claim(s) for trend lines':'')
       +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
     addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"'
       +(collapseStats?(' — merged '+collapseStats.hidden.length+' duplicate tab(s), normalized '
-        +collapseStats.normalized+' sample type(s), '+elNorm+' analyte label(s)'):''),
+        +collapseStats.normalized+' sample type(s), '+elNorm+' analyte label(s), '+claimNorm+' claim(s)'):''),
       {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct,
-        hiddenTabs:collapseStats?collapseStats.hidden:[], normalized:collapseStats?collapseStats.normalized:0,
-        elementsNormalized:elNorm});
+        hiddenTabs:collapseStats?collapseStats.hidden:[],
+        normalized:collapseStats?collapseStats.normalized:0,
+        elementsNormalized:elNorm, claimsNormalized:claimNorm});
   }catch(e){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Redraw failed: '+m;
@@ -5517,6 +5660,7 @@ async function commitToTracker(){
         });
       });
       normalizeTrackerElements(doc,colFor);
+      normalizeTrackerClaims(doc,colFor);
       collapseTrackerDuplicates(doc,colFor);
       msg.textContent='Building charts…';
       const sync=await QcCharts.sync(doc,
@@ -5633,6 +5777,7 @@ async function importTrackerHistory(){
       if(p && el){ (products[p]=products[p]||{})[el]=1; }
     }
     normalizeTrackerElements(doc, newMap);
+    normalizeTrackerClaims(doc, newMap);
     collapseTrackerDuplicates(doc, newMap);
     msg.textContent='Building charts…';
     const sync=await QcCharts.sync(doc,
@@ -5962,6 +6107,9 @@ function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); r
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
 (typeof self!=='undefined'?self:window).trkCanonElementForType=canonicalElementForType;
+(typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
+  return unifiedClaimForProductElement(rows, cols, product, elementKey, matchNames);
+};
 
 function catalogTypeName(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
