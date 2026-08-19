@@ -1758,6 +1758,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     // Guessing '_' + tabName there finds nothing and the charts stay empty.
     const known = {};
     const keyFn = global.trkCatalogKeyForType;
+    const syncedKeys = new Set();
+    const syncedHelpers = new Set();
     for (const p of products || []) {
       const r = await ensureProduct(doc, p.name, p.elements);
       if (r.sheet) known[r.sheet.toLowerCase()] = {
@@ -1769,8 +1771,20 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       else if (r.status === 'skipped') out.skipped.push({ product: p.name, reason: r.reason });
     }
 
-    for (const s of doc.sheets.slice()) {
-      if (s.hidden) continue;
+    function syncTabScore(sheet) {
+      if (!keyFn) return 0;
+      let score = 0;
+      const pk = keyFn(sheet.name);
+      const pick = global.trkTabPick && global.trkTabPick[pk];
+      if (pick && pick.toLowerCase() === sheet.name.toLowerCase()) score += 200;
+      const canon = global.trkMergeCanon && global.trkMergeCanon[pk];
+      if (canon && canon.toLowerCase() === sheet.name.toLowerCase()) score += 150;
+      if (!/\s+\d+$/.test(sheet.name)) score += 50;
+      return score;
+    }
+    const visSheets = doc.sheets.filter(s => !s.hidden).sort((a, b) => syncTabScore(b) - syncTabScore(a));
+
+    for (const s of visSheets) {
       const hit = known[s.name.toLowerCase()];
       let helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
       if (!helper && keyFn) {
@@ -1784,6 +1798,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const pk = keyFn(product);
         if (global.trkMergeCanon && global.trkMergeCanon[pk]) product = global.trkMergeCanon[pk];
       }
+      const prodKey = keyFn ? keyFn(product) : product.toLowerCase();
+      if (syncedKeys.has(prodKey) || syncedHelpers.has(helper.path)) continue;
+      syncedKeys.add(prodKey);
+      syncedHelpers.add(helper.path);
       let matchNames = (hit && hit.matchNames) || [product];
       if (keyFn && columns.SampleType !== undefined) {
         const key = keyFn(product);
@@ -2537,7 +2555,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.5';   // bump on each release
+const APP_VERSION='v5.16.6';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5151,13 +5169,24 @@ function normalizeTrackerElements(doc, colFor){
 }
 function collapseTrackerDuplicates(doc,colFor){
   const rows=doc.dataRows();
-  const tabs=collectProductChartTabs(doc).filter(t=>!doc.isSheetHidden(t.sheet));
   const groups=new Map();
-  tabs.forEach(t=>{
-    const key=tabGroupKeyForMerge(t.sheet, t.key);
-    if(!groups.has(key)) groups.set(key,[]);
-    const hit=groups.get(key).some(x=>x.sheet===t.sheet);
-    if(!hit) groups.get(key).push({sheet:t.sheet, helper:t.helper, key});
+  function addTab(sheet, helper, key){
+    const gkey=tabGroupKeyForMerge(sheet, key||trackerCatalogKey(sheet));
+    if(!groups.has(gkey)) groups.set(gkey,[]);
+    if(!groups.get(gkey).some(x=>x.sheet===sheet))
+      groups.get(gkey).push({sheet, helper:helper||null, key:gkey});
+  }
+  collectProductChartTabs(doc).filter(t=>!doc.isSheetHidden(t.sheet))
+    .forEach(t=>addTab(t.sheet, t.helper, t.key));
+  doc.sheets.forEach(s=>{
+    if(s.hidden||s.name===TRACKER_SHEET) return;
+    if(!isFertilexQcSheetName(s.name)) return;
+    let helper=doc.sheetNamed('_'+s.name);
+    if(!helper){
+      helper=doc.sheets.find(h=>h.hidden&&h.name.startsWith('_')
+        &&isFertilexQcSheetName(h.name.slice(1)));
+    }
+    addTab(s.name, helper?helper.name:null, TRK_MERGE_KEY);
   });
   const keeperMap=new Map(), hidden=[];
   groups.forEach((tabs,key)=>{
@@ -5473,7 +5502,6 @@ async function rebuildTrackerCharts(msg, opts){
     const rows=st.doc.dataRows();
     const products=repair?productsFromTrackerData(rows,colFor):[];
     const sync=await QcCharts.sync(st.doc, products, colFor, rows, loadBands());
-    if(repair) collapseTrackerDuplicates(st.doc,colFor);
     alphabetizeTrackerTabs(st.doc);
     await writeTrackerWorkbook(TRACKER_HANDLE, st.doc,
       ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
@@ -6218,6 +6246,7 @@ let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while ed
 function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 (typeof self!=='undefined'?self:window).trkMergeCanon=TRK_MERGE_CANON;
+Object.defineProperty(typeof self!=='undefined'?self:window,'trkTabPick',{get:()=>TRK_TAB_PICK});
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
 (typeof self!=='undefined'?self:window).trkCanonElementForType=canonicalElementForType;
 (typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
