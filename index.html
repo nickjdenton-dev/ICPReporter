@@ -1772,9 +1772,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     for (const s of doc.sheets.slice()) {
       if (s.hidden) continue;
       const hit = known[s.name.toLowerCase()];
-      const helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
+      let helper = (hit && hit.helper && doc.sheetNamed(hit.helper)) || doc.sheetNamed('_' + s.name);
+      if (!helper && keyFn) {
+        const sheetKey = keyFn(s.name);
+        helper = doc.sheets.find(h => h.hidden && h.name.startsWith('_')
+          && keyFn(h.name.slice(1)) === sheetKey);
+      }
       if (!helper) continue;                       // not a product tab of ours
       let product = (hit && hit.product) || s.name;
+      if (keyFn) {
+        const pk = keyFn(product);
+        if (global.trkMergeCanon && global.trkMergeCanon[pk]) product = global.trkMergeCanon[pk];
+      }
       let matchNames = (hit && hit.matchNames) || [product];
       if (keyFn && columns.SampleType !== undefined) {
         const key = keyFn(product);
@@ -2528,7 +2537,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.4';   // bump on each release
+const APP_VERSION='v5.16.5';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4861,6 +4870,38 @@ function sampleTypesInData(rows,colFor){
   });
   return set;
 }
+function isFertilexQcSheetName(name){
+  const s=String(name||'').trim();
+  if(!s||s===TRACKER_SHEET) return false;
+  if(/^qc$/i.test(s)) return true;
+  const compact=s.replace(/[\s_-]+/g,'').toLowerCase();
+  if(compact.indexOf('fertilex')===0) return true;
+  return isFertilexQcType(trackerNorm(s));
+}
+function tabGroupKeyForMerge(name, catalogKey){
+  if(isFertilexQcSheetName(name)||catalogKey===TRK_MERGE_KEY) return TRK_MERGE_KEY;
+  return catalogKey;
+}
+function collectProductChartTabs(doc){
+  const out=[], seen=new Set();
+  function add(sheet, helper, key){
+    if(!sheet||seen.has(sheet.toLowerCase())) return;
+    seen.add(sheet.toLowerCase());
+    out.push({sheet, helper:helper||null, key:tabGroupKeyForMerge(sheet, key||trackerCatalogKey(sheet))});
+  }
+  listTrackerProductTabs(doc, true).forEach(t=>add(t.sheet, t.helper, t.key));
+  doc.sheets.forEach(s=>{
+    if(s.hidden||s.name===TRACKER_SHEET||seen.has(s.name.toLowerCase())) return;
+    if(!isFertilexQcSheetName(s.name)) return;
+    let helper=doc.sheetNamed('_'+s.name);
+    if(!helper){
+      helper=doc.sheets.find(h=>h.hidden&&h.name.startsWith('_')
+        &&isFertilexQcSheetName(h.name.slice(1)));
+    }
+    add(s.name, helper?helper.name:null, TRK_MERGE_KEY);
+  });
+  return out;
+}
 function listTrackerProductTabs(doc, useMergeKeys){
   const keyFn=useMergeKeys?trackerCatalogKey:catalogKeyForType;
   const out=[];
@@ -5071,7 +5112,10 @@ function scoreKeeperTab(tab,rows,colFor){
   if(!/\s+\d+$/.test(tab.sheet)) score+=50;
   if(tab.key===TRK_MERGE_KEY){
     const sn=trackerNorm(tab.sheet);
-    if(sn===TRK_MERGE_KEY||/^fertilex-8$/i.test(tab.sheet.replace(/\s/g,''))) score+=250;
+    const compact=tab.sheet.replace(/[\s_-]+/g,'').toLowerCase();
+    if(/^fertilex-8$/i.test(tab.sheet.replace(/\s/g,''))) score+=400;
+    else if(compact==='fertilex8') score+=350;
+    else if(sn===TRK_MERGE_KEY||/^fertilex-8$/i.test(tab.sheet.replace(/\s/g,''))) score+=250;
     else if(sn==='qc') score+=20;
   }
   if(colFor&&colFor.SampleType!==undefined){
@@ -5107,10 +5151,10 @@ function normalizeTrackerElements(doc, colFor){
 }
 function collapseTrackerDuplicates(doc,colFor){
   const rows=doc.dataRows();
-  let tabs=listTrackerProductTabs(doc, true).filter(t=>!doc.isSheetHidden(t.sheet));
+  const tabs=collectProductChartTabs(doc).filter(t=>!doc.isSheetHidden(t.sheet));
   const groups=new Map();
   tabs.forEach(t=>{
-    const key=t.key;
+    const key=tabGroupKeyForMerge(t.sheet, t.key);
     if(!groups.has(key)) groups.set(key,[]);
     const hit=groups.get(key).some(x=>x.sheet===t.sheet);
     if(!hit) groups.get(key).push({sheet:t.sheet, helper:t.helper, key});
@@ -5136,7 +5180,8 @@ function collapseTrackerDuplicates(doc,colFor){
   });
   sampleTypesInData(rows,colFor).forEach(st=>{
     const key=trackerCatalogKey(st);
-    if(!keeperMap.has(key)) keeperMap.set(key, trkType(trackerDisplayName(st)));
+    const canon=TRK_MERGE_CANON[key]||trkType(trackerDisplayName(st));
+    if(!keeperMap.has(key)) keeperMap.set(key, canon);
   });
   let normalized=0;
   if(colFor&&colFor.SampleType!==undefined){
@@ -5144,7 +5189,7 @@ function collapseTrackerDuplicates(doc,colFor){
       const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
       if(!st) return;
       const key=trackerCatalogKey(st);
-      const canon=keeperMap.get(key);
+      const canon=keeperMap.get(key)||TRK_MERGE_CANON[key]||trkType(trackerDisplayName(st));
       if(!canon) return;
       if(trkType(st).toLowerCase()!==canon.toLowerCase()){
         doc.updateRow(i,{[colFor.SampleType]:canon});
@@ -6172,6 +6217,7 @@ let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while ed
 
 function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
+(typeof self!=='undefined'?self:window).trkMergeCanon=TRK_MERGE_CANON;
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
 (typeof self!=='undefined'?self:window).trkCanonElementForType=canonicalElementForType;
 (typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
