@@ -2273,11 +2273,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <div id="trkResolveModal" class="modal-backdrop modal-centered" style="z-index:430" onclick="if(event.target===this)cancelTrkResolve()">
   <div class="modal-panel" style="max-width:560px">
     <div class="modal-hdr">
-      <h2>Chart tab routing</h2>
+      <h2>Confirm chart placement</h2>
       <button type="button" class="modal-x" onclick="cancelTrkResolve()" title="Close" aria-label="Close">&times;</button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 12px;font-size:13px;line-height:1.45;color:#444">Some sample types match more than one chart tab, or sit close to a different product. Choose where each should be charted.</p>
+      <p style="margin:0 0 12px;font-size:13px;line-height:1.45;color:#444">Review how this data should be charted before committing.</p>
       <div id="trkResolveBody"></div>
       <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
         <button class="act sec" onclick="cancelTrkResolve()">Cancel</button>
@@ -2314,7 +2314,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <div class="modal-body">
       <p style="margin:0 0 12px;font-size:14px;line-height:1.45"><b>Rebuild every chart from All Data?</b></p>
       <div id="trkRebuildConfirmBody" style="font-size:13px;line-height:1.45;color:#444;margin-bottom:14px"></div>
-      <p style="margin:0 0 14px;font-size:12px;color:#666;line-height:1.4">Use this after hand-editing rows on the All Data sheet. Duplicate chart tabs are merged, analyte labels are aligned with your sample types, and every chart is redrawn. All Data itself is not removed — only hidden duplicate tabs. The workbook must be closed in Excel.</p>
+      <p style="margin:0 0 14px;font-size:12px;color:#666;line-height:1.4">Use this after hand-editing rows on the All Data sheet. Every chart is redrawn from that data. The workbook must be closed in Excel.</p>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="act sec" onclick="cancelTrkRebuildConfirm()">Cancel</button>
         <button class="act" onclick="confirmTrkRebuild()">Yes — rebuild charts</button>
@@ -2528,7 +2528,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.16.3';   // bump on each release
+const APP_VERSION='v5.16.4';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4885,6 +4885,21 @@ function collectMatchNames(key,rows,colFor,primaryName,useMergeKeys){
   });
   return [...names];
 }
+function findSimilarTrackerTabs(type, tabs, key, canonical){
+  const nc=trackerNorm(canonical);
+  const seen=new Set();
+  const out=[];
+  tabs.forEach(t=>{
+    if(t.key===key||seen.has(t.sheet.toLowerCase())) return;
+    const d=editDistance(trackerNorm(t.sheet), nc);
+    if(d>0&&d<=FUZZY_MAX&&isDistinctProductVariant(type,t.sheet)){
+      seen.add(t.sheet.toLowerCase());
+      out.push(t.sheet);
+    }
+  });
+  out.sort((a,b)=>editDistance(trackerNorm(a),nc)-editDistance(trackerNorm(b),nc));
+  return out;
+}
 function resolveTrackerTab(doc,type,rows,colFor){
   const key=trackerCatalogKey(type);
   if(TRK_TAB_PICK[key]){
@@ -4903,37 +4918,48 @@ function resolveTrackerTab(doc,type,rows,colFor){
   }
   if(candidates.size>1){
     return {ambiguous:true, key, canonical, candidates:[...candidates],
-      message:'Sample type "'+canonical+'" matches more than one chart tab in this workbook. '
-        +'Which tab should receive this data?'};
+      message:'"'+canonical+'" matches more than one chart tab in this workbook. Which tab should receive this data?'};
   }
-  const fuzzyClose=tabs.filter(t=>{
-    if(t.key===key) return false;
-    const d=editDistance(trackerNorm(t.sheet), trackerNorm(canonical));
-    return d>0&&d<=FUZZY_MAX&&isDistinctProductVariant(type,t.sheet);
-  });
-  if(fuzzyClose.length){
-    return {needsConfirm:true, key, canonical, name:canonical,
-      message:'"'+canonical+'" is close to the existing "'+fuzzyClose[0].sheet
-        +'" tab but is a different sample type. Chart under "'+canonical+'" anyway?'};
+  const similar=findSimilarTrackerTabs(type, tabs, key, canonical);
+  if(similar.length){
+    return {similarProduct:true, key, canonical, similarTabs:similar, new:true,
+      message:'"'+canonical+'" is similar to existing product tab'
+        +(similar.length===1?' "'+similar[0]+'"':('s: '+similar.join(', ')))
+        +'. Is this the same product or a new one?'};
   }
   return {name:canonical, key, canonical, matchNames:[canonical], new:true};
 }
 let TRK_RESOLVE_PROMISE=null;
+function trkResolveRadioName(issue){
+  return 'trkPick_'+(issue.kind==='newAnalytes'?issue.typeKey:issue.key).replace(/[^\w-]/g,'_');
+}
 function showTrackerTabResolveModal(issues,partial,rows,colFor){
   return new Promise(resolve=>{
     TRK_RESOLVE_PROMISE={resolve, issues, partial, rows, colFor};
     const body=document.getElementById('trkResolveBody');
     body.innerHTML=issues.map(issue=>{
+      const rname=trkResolveRadioName(issue);
+      if(issue.kind==='newAnalytes'){
+        const list=issue.analytes.map(a=>'<b>'+a.replace(/</g,'&lt;')+'</b>').join(', ');
+        const opts=
+          `<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__extend__" checked> Add chart(s) for ${list} to <b>${issue.tab.replace(/</g,'&lt;')}</b></label>`
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__newtab__"> Start a new tab for <b>${issue.canonical.replace(/</g,'&lt;')}</b></label>`
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__cancel__"> Cancel commit</label>`;
+        return `<div style="margin-bottom:14px;padding:10px 12px;border:1px solid #b8860b;border-radius:6px;background:#fff8e1"><p style="margin:0 0 8px;font-size:13px;line-height:1.45">${issue.message}</p>${opts}</div>`;
+      }
       if(issue.ambiguous){
         const opts=issue.candidates.map(c=>
-          `<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="trkPick_${issue.key}" value="${String(c).replace(/"/g,'&quot;')}"> Use existing tab: <b>${c}</b></label>`).join('')
-          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="trkPick_${issue.key}" value="__new__"> Consolidate under: <b>${issue.canonical}</b> (recommended)</label>`;
+          `<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="${String(c).replace(/"/g,'&quot;')}"> Same product — use tab: <b>${c.replace(/</g,'&lt;')}</b></label>`).join('')
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__new__"> Consolidate under: <b>${issue.canonical.replace(/</g,'&lt;')}</b></label>`
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__cancel__"> Cancel commit</label>`;
         return `<div style="margin-bottom:14px;padding:10px 12px;border:1px solid #dde4ea;border-radius:6px"><p style="margin:0 0 8px;font-size:13px;line-height:1.45">${issue.message}</p>${opts}</div>`;
       }
-      if(issue.needsConfirm){
-        return `<div style="margin-bottom:14px;padding:10px 12px;border:1px solid #b8860b;border-radius:6px;background:#fff8e1"><p style="margin:0 0 8px;font-size:13px;line-height:1.45">⚠️ ${issue.message}</p>
-          <label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="trkPick_${issue.key}" value="__new__" checked> Yes — use <b>${issue.canonical}</b></label>
-          <label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="trkPick_${issue.key}" value="__cancel__"> Cancel commit and fix sample types first</label></div>`;
+      if(issue.similarProduct){
+        const opts=issue.similarTabs.map(c=>
+          `<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="${String(c).replace(/"/g,'&quot;')}"> Same product as <b>${c.replace(/</g,'&lt;')}</b></label>`).join('')
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__new__" checked> New product — start tab: <b>${issue.canonical.replace(/</g,'&lt;')}</b></label>`
+          +`<label class="lab-chk" style="display:block;margin:5px 0"><input type="radio" name="${rname}" value="__cancel__"> Cancel commit</label>`;
+        return `<div style="margin-bottom:14px;padding:10px 12px;border:1px solid #b8860b;border-radius:6px;background:#fff8e1"><p style="margin:0 0 8px;font-size:13px;line-height:1.45">${issue.message}</p>${opts}</div>`;
       }
       return '';
     }).join('');
@@ -4944,16 +4970,25 @@ function confirmTrkResolve(){
   const st=TRK_RESOLVE_PROMISE; if(!st) return;
   const resolved={...st.partial};
   for(const issue of st.issues){
-    const sel=document.querySelector('input[name="trkPick_'+issue.key+'"]:checked');
-    if(!sel){ alert('Choose an option for each sample type listed.'); return; }
+    const rname=trkResolveRadioName(issue);
+    const sel=document.querySelector('input[name="'+rname+'"]:checked');
+    if(!sel){ alert('Choose an option for each item listed.'); return; }
     if(sel.value==='__cancel__'){
       document.getElementById('trkResolveModal').classList.remove('open');
       st.resolve(null); TRK_RESOLVE_PROMISE=null; return;
     }
+    if(issue.kind==='newAnalytes'){
+      if(sel.value==='__newtab__'){
+        TRK_TAB_PICK[issue.typeKey]=issue.canonical; saveTrkTabPick(TRK_TAB_PICK);
+        resolved[issue.typeKey]={name:issue.canonical, key:issue.typeKey, canonical:issue.canonical,
+          matchNames:collectMatchNames(issue.typeKey,st.rows,st.colFor,issue.canonical,true)};
+      }
+      continue;
+    }
     const name=sel.value==='__new__'?issue.canonical:sel.value;
     TRK_TAB_PICK[issue.key]=name; saveTrkTabPick(TRK_TAB_PICK);
     resolved[issue.key]={name, key:issue.key, canonical:issue.canonical,
-      matchNames:collectMatchNames(issue.key,st.rows,st.colFor,name)};
+      matchNames:collectMatchNames(issue.key,st.rows,st.colFor,name,true)};
   }
   document.getElementById('trkResolveModal').classList.remove('open');
   st.resolve(resolved); TRK_RESOLVE_PROMISE=null;
@@ -4962,6 +4997,46 @@ function cancelTrkResolve(){
   const st=TRK_RESOLVE_PROMISE; if(!st) return;
   document.getElementById('trkResolveModal').classList.remove('open');
   st.resolve(null); TRK_RESOLVE_PROMISE=null;
+}
+async function detectNewAnalytesForCommit(doc, picked, tabMap, colFor){
+  const tabs=listTrackerProductTabs(doc, true);
+  const byKey=new Map();
+  tabs.forEach(t=>{ if(!byKey.has(t.key)) byKey.set(t.key, t); });
+  const pending=new Map();
+  for(const s of picked){
+    const typeKey=trackerCatalogKey(s.type||s.label);
+    const info=tabMap[typeKey];
+    if(!info) continue;
+    const existing=tabs.find(t=>t.sheet.toLowerCase()===info.name.toLowerCase())||byKey.get(typeKey);
+    if(!existing) continue;
+    let helper=doc.sheetNamed('_'+existing.sheet);
+    if(!helper){
+      helper=doc.sheets.find(h=>h.hidden&&h.name.startsWith('_')
+        &&trackerCatalogKey(h.name.slice(1))===typeKey);
+    }
+    if(!helper) continue;
+    const have=new Set(QcCharts.helperElements(await doc.partText(helper.path)).map(e=>e.toLowerCase()));
+    const haveSyms=new Set([...have].map(e=>trkElSymbol(e)).filter(Boolean));
+    const missing=new Set();
+    trackerRowsFor(s, info.name).forEach(r=>{
+      const el=String(r.Element||'').trim();
+      if(!el) return;
+      const sym=trkElSymbol(el);
+      if(sym){
+        if(!haveSyms.has(sym)) missing.add(el);
+      }else if(!have.has(el.toLowerCase())) missing.add(el);
+    });
+    if(!missing.size) continue;
+    let p=pending.get(typeKey);
+    if(!p) p={typeKey, tab:existing.sheet, canonical:info.canonical, analytes:new Set()};
+    [...missing].forEach(a=>p.analytes.add(a));
+    pending.set(typeKey, p);
+  }
+  return [...pending.values()].map(p=>({
+    kind:'newAnalytes', typeKey:p.typeKey, key:p.typeKey, tab:p.tab, canonical:p.canonical,
+    analytes:[...p.analytes],
+    message:'Committing will add new chart(s) on "'+p.tab+'" for: '+[...p.analytes].join(', ')+'.'
+  }));
 }
 async function resolveTrackerTabsForCommit(doc,picked,colFor){
   const rows=doc.dataRows();
@@ -4973,13 +5048,22 @@ async function resolveTrackerTabsForCommit(doc,picked,colFor){
   const partial={}, issues=[];
   types.forEach((type,key)=>{
     const r=resolveTrackerTab(doc,type,rows,colFor);
-    if(r.ambiguous||r.needsConfirm) issues.push(r);
+    if(r.ambiguous||r.similarProduct) issues.push(r);
     else partial[key]=r;
   });
-  if(!issues.length) return partial;
-  return showTrackerTabResolveModal(issues,partial,rows,colFor);
+  let resolved=partial;
+  if(issues.length){
+    resolved=await showTrackerTabResolveModal(issues,partial,rows,colFor);
+    if(!resolved) return null;
+  }
+  const analyteIssues=await detectNewAnalytesForCommit(doc,picked,resolved,colFor);
+  if(analyteIssues.length){
+    resolved=await showTrackerTabResolveModal(analyteIssues,resolved,rows,colFor);
+    if(!resolved) return null;
+  }
+  return resolved;
 }
-/* ---- repair: normalize All Data spellings and hide duplicate chart tabs ---- */
+/* ---- align All Data sample types and hide duplicate tabs (same product only) ---- */
 function scoreKeeperTab(tab,rows,colFor){
   let score=0;
   const canon=trackerDisplayName(tab.sheet).toLowerCase();
@@ -5006,12 +5090,6 @@ function pickKeeperTab(tabs,rows,colFor){
   const sorted=tabs.slice().sort((a,b)=>scoreKeeperTab(b,rows,colFor)-scoreKeeperTab(a,rows,colFor));
   return sorted[0];
 }
-function shouldMergeTabNames(shortName, longName){
-  const ns=trackerNorm(shortName), nl=trackerNorm(longName);
-  if(!ns||!nl||ns===nl) return false;
-  if(!nl.startsWith(ns+' ')) return false;
-  return !isDistinctProductVariant(shortName, longName);
-}
 function normalizeTrackerElements(doc, colFor){
   if(!colFor||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
   let n=0;
@@ -5026,6 +5104,55 @@ function normalizeTrackerElements(doc, colFor){
     }
   });
   return n;
+}
+function collapseTrackerDuplicates(doc,colFor){
+  const rows=doc.dataRows();
+  let tabs=listTrackerProductTabs(doc, true).filter(t=>!doc.isSheetHidden(t.sheet));
+  const groups=new Map();
+  tabs.forEach(t=>{
+    const key=t.key;
+    if(!groups.has(key)) groups.set(key,[]);
+    const hit=groups.get(key).some(x=>x.sheet===t.sheet);
+    if(!hit) groups.get(key).push({sheet:t.sheet, helper:t.helper, key});
+  });
+  const keeperMap=new Map(), hidden=[];
+  groups.forEach((tabs,key)=>{
+    if(tabs.length<2) return;
+    const keeper=pickKeeperTab(tabs,rows,colFor);
+    if(!keeper) return;
+    const canon=trkType(TRK_MERGE_CANON[key]||trackerDisplayName(keeper.sheet));
+    keeperMap.set(key,canon);
+    TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
+    tabs.forEach(t=>{
+      if(t.sheet===keeper.sheet) return;
+      if(doc.setSheetHidden(t.sheet,true)){
+        hidden.push(t.sheet);
+        if(t.helper&&doc.sheetNamed(t.helper)){
+          const shared=tabs.some(x=>x.sheet===keeper.sheet&&x.helper===t.helper);
+          if(!shared) doc.setSheetHidden(t.helper,true);
+        }
+      }
+    });
+  });
+  sampleTypesInData(rows,colFor).forEach(st=>{
+    const key=trackerCatalogKey(st);
+    if(!keeperMap.has(key)) keeperMap.set(key, trkType(trackerDisplayName(st)));
+  });
+  let normalized=0;
+  if(colFor&&colFor.SampleType!==undefined){
+    rows.forEach((row,i)=>{
+      const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
+      if(!st) return;
+      const key=trackerCatalogKey(st);
+      const canon=keeperMap.get(key);
+      if(!canon) return;
+      if(trkType(st).toLowerCase()!==canon.toLowerCase()){
+        doc.updateRow(i,{[colFor.SampleType]:canon});
+        normalized++;
+      }
+    });
+  }
+  return {normalized, hidden, keepers:keeperMap.size};
 }
 /* ---- unify label claims per product + analyte ----
    Trend reference lines (claim / warn / limit) come from LabelClaim on each row.
@@ -5095,6 +5222,11 @@ function normalizeTrackerClaims(doc, colFor){
   });
   let n=0;
   groups.forEach(g=>{
+    let elName=null;
+    g.entries.forEach(e=>{
+      const el=String(rows[e.i][colFor.Element]==null?'':rows[e.i][colFor.Element]).trim();
+      if(el&&!elName) elName=canonicalElementForType(g.st, el);
+    });
     const latestClaim=unifiedClaimForProductElement(rows, colFor, g.st, elName||g.sym,
       [...g.matchNames, trackerDisplayName(g.st)]);
     if(latestClaim===null) return;
@@ -5133,65 +5265,6 @@ function productsFromTrackerData(rows,colFor){
     if(keeper) p.name=trkType(keeper);
     return {name:p.name, elements:[...p.elements.values()], matchNames:[...p.matchNames, p.name]};
   }).filter(p=>p.elements.length);
-}
-function collapseTrackerDuplicates(doc,colFor){
-  const rows=doc.dataRows();
-  let tabs=listTrackerProductTabs(doc, true).filter(t=>!doc.isSheetHidden(t.sheet));
-  const keyRemap=new Map();
-  tabs.forEach(a=>{
-    tabs.forEach(b=>{
-      if(a.sheet===b.sheet) return;
-      if(shouldMergeTabNames(b.sheet, a.sheet)){
-        const keeperKey=trackerCatalogKey(b.sheet);
-        keyRemap.set(a.key, keeperKey);
-        keyRemap.set(trackerCatalogKey(a.sheet), keeperKey);
-      }
-    });
-  });
-  const groups=new Map();
-  tabs.forEach(t=>{
-    const key=keyRemap.get(t.key)||t.key;
-    if(!groups.has(key)) groups.set(key,[]);
-    const hit=groups.get(key).some(x=>x.sheet===t.sheet);
-    if(!hit) groups.get(key).push({sheet:t.sheet, helper:t.helper, key});
-  });
-  const keeperMap=new Map(), hidden=[];
-  groups.forEach((tabs,key)=>{
-    const keeper=pickKeeperTab(tabs,rows,colFor);
-    if(!keeper) return;
-    const canon=trkType(TRK_MERGE_CANON[key]||trackerDisplayName(keeper.sheet));
-    keeperMap.set(key,canon);
-    TRK_TAB_PICK[key]=canon; saveTrkTabPick(TRK_TAB_PICK);
-    tabs.forEach(t=>{
-      if(t.sheet===keeper.sheet) return;
-      if(doc.setSheetHidden(t.sheet,true)){
-        hidden.push(t.sheet);
-        if(t.helper&&doc.sheetNamed(t.helper)){
-          const shared=tabs.some(x=>x.sheet===keeper.sheet&&x.helper===t.helper);
-          if(!shared) doc.setSheetHidden(t.helper,true);
-        }
-      }
-    });
-  });
-  sampleTypesInData(rows,colFor).forEach(st=>{
-    const key=trackerCatalogKey(st);
-    if(!keeperMap.has(key)) keeperMap.set(key, trkType(trackerDisplayName(st)));
-  });
-  let normalized=0;
-  if(colFor&&colFor.SampleType!==undefined){
-    rows.forEach((row,i)=>{
-      const st=String(row[colFor.SampleType]==null?'':row[colFor.SampleType]).trim();
-      if(!st) return;
-      const key=trackerCatalogKey(st);
-      const canon=keeperMap.get(key);
-      if(!canon) return;
-      if(trkType(st).toLowerCase()!==canon.toLowerCase()){
-        doc.updateRow(i,{[colFor.SampleType]:canon});
-        normalized++;
-      }
-    });
-  }
-  return {normalized, hidden, keepers:keeperMap.size};
 }
 // Pin All Data first; visible chart tabs A–Z; hidden helpers last (not shown in Excel).
 function alphabetizeTrackerTabs(doc){
@@ -5335,7 +5408,7 @@ async function rebuildTrackerCharts(msg, opts){
   if(!XlsxPatch.supported()){ msg.style.color='#a33';
     msg.textContent='Redrawing charts needs Chrome or Edge 103 or newer.'; return; }
   const repair=!!opts.repair||!!opts.collapse;
-  msg.style.color='#0f4c81'; msg.textContent=repair?'Repairing tabs and redrawing charts…':'Redrawing charts…';
+  msg.style.color='#0f4c81'; msg.textContent=repair?'Rebuilding charts from All Data…':'Redrawing charts…';
   try{
     const perm={mode:'readwrite'};
     if((await TRACKER_HANDLE.queryPermission(perm))!=='granted' && (await TRACKER_HANDLE.requestPermission(perm))!=='granted')
@@ -5362,14 +5435,8 @@ async function rebuildTrackerCharts(msg, opts){
     const b=loadBands();
     msg.style.color='#2e7d32';
     msg.textContent='✅ Redrew '+sync.retargeted+' chart(s) across '+sync.rebuilt+' product tab(s)'
-      +(collapseStats&&collapseStats.hidden.length?' — merged duplicate tab(s): '+collapseStats.hidden.join(', '):'')
-      +(collapseStats&&collapseStats.normalized?' — normalized '+collapseStats.normalized+' sample type(s) in All Data':'')
-      +(elNorm?' — aligned '+elNorm+' analyte label(s) with sample types':'')
-      +(claimNorm?' — unified '+claimNorm+' label claim(s) for trend lines':'')
       +' — warning '+b.warnPct+'%, limit '+b.limitPct+'% below claim.';
-    addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"'
-      +(collapseStats?(' — merged '+collapseStats.hidden.length+' duplicate tab(s), normalized '
-        +collapseStats.normalized+' sample type(s), '+elNorm+' analyte label(s), '+claimNorm+' claim(s)'):''),
+    addLog('TRACKER','Redrew '+sync.retargeted+' chart(s) in "'+TRACKER_HANDLE.name+'"',
       {tabs:sync.rebuilt, warnPct:b.warnPct, limitPct:b.limitPct,
         hiddenTabs:collapseStats?collapseStats.hidden:[],
         normalized:collapseStats?collapseStats.normalized:0,
