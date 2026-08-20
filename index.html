@@ -2614,6 +2614,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid #dde4ea}
   .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
   .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
+  /* Locked reports (contenteditable off, or globally finalized) cannot change λ. */
+  .report:not([contenteditable="true"]) .wlcell,
+  #reports.finalized .wlcell{
+    cursor:default;border-bottom:0;pointer-events:none;
+  }
+  .report:not([contenteditable="true"]) .wlcell:hover,
+  #reports.finalized .wlcell:hover{background:transparent;box-shadow:none}
   #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
           box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:12px;max-height:260px;overflow:auto;min-width:150px}
   #wlMenu button{display:block;width:100%;text-align:left;border:0;background:#fff;padding:6px 12px;cursor:pointer;font-size:12px}
@@ -3101,11 +3108,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-<<<<<<< HEAD
-const APP_VERSION='v5.17.1';   // bump on each release
-=======
-const APP_VERSION='v5.17.2';   // bump on each release
->>>>>>> 9d5b3fd (Fix Allure charts: resolve range label claims for trend bands (v5.17.2))
+const APP_VERSION='v5.17.3';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4608,9 +4611,18 @@ function reportHTML(s,idx){
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
   const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
-  const measured=(m)=> m.kind==='value'?sig3(m.value) : m.kind==='nd'?ndSpan : naSpan;
+  const measuredDisp=(tbl,m)=>{
+    const key=tbl+':'+m.el+':measured';
+    if(s.fieldOverrides&&s.fieldOverrides[key]!=null) return escReportText(s.fieldOverrides[key]);
+    return m.kind==='value'?sig3(m.value) : m.kind==='nd'?ndSpan : naSpan;
+  };
+  const claimDisp=(tbl,m)=>{
+    const key=tbl+':'+m.el+':claim';
+    if(s.fieldOverrides&&s.fieldOverrides[key]!=null) return escReportText(s.fieldOverrides[key]);
+    return m.claim!=null?m.claim:naSpan;
+  };
   const star=m=>m.phosphite?'<sup>*</sup>':'';
-  // clickable wavelength cell (any user can change the source line for this report)
+  // clickable wavelength cell (only while the report is unlocked for editing)
   const wlCell=(el,disp,tbl)=> (idx!=null)
     ? `<td style="${S.td}"><span class="wlcell" data-i="${idx}" data-tbl="${tbl}" data-el="${el}" title="Click to change the wavelength / data source">${disp}</span></td>`
     : `<td style="${S.td}">${disp}</td>`;
@@ -4621,7 +4633,7 @@ function reportHTML(s,idx){
     return cell('<b>'+ac.label+(withStar?star(a):'')+'</b>'+(ac.coeff?`<div style="${coeffNote}">conv. coefficient = ${ac.coeff}</div>`:'')); };
 
   const macroRows=s.macro.map(m=>`
-    <tr>${nameCell(m,true)}${cell(measured(m))}${cell(m.claim!=null?m.claim:naSpan)}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
+    <tr>${nameCell(m,true)}${cell(measuredDisp('macro',m))}${cell(claimDisp('macro',m))}${wlCell(m.el,m.wl,'macro')}</tr>`).join('');
   // phosphite footnote shown only when a "*" appears in the table
   const footnote=s.hasPhosphite?`<div style="font-size:11px;font-style:italic;color:#888;margin:2px 0 6px">
       ${te('phosphiteNote')}</div>`:'';
@@ -4629,17 +4641,21 @@ function reportHTML(s,idx){
   // micronutrient table: list spec'd micronutrients; if none, one "n/a" row
   const addRows=(s.additional&&s.additional.length)
     ? s.additional.map(a=>`
-        <tr>${nameCell(a,false)}${cell(measured(a))}${cell(a.claim!=null?a.claim:naSpan)}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
+        <tr>${nameCell(a,false)}${cell(measuredDisp('micro',a))}${cell(claimDisp('micro',a))}${wlCell(a.el,a.wl,'micro')}</tr>`).join('')
     : `<tr>${cell('n/a').repeat(4)}</tr>`;
 
   const metalRows=s.metals.map(hm=>{
     const detKey='metal:'+hm.el+':detected';
+    const limKey='metal:'+hm.el+':limit';
     const detText=(s.fieldOverrides&&s.fieldOverrides[detKey])
       || `${hm.detected}${hm.qty?(' — '+hm.qty):''}`;
+    const limText=(s.fieldOverrides&&s.fieldOverrides[limKey]!=null)
+      ? s.fieldOverrides[limKey]
+      : hm.limit.toFixed(3);
     const detNd=!(s.fieldOverrides&&s.fieldOverrides[detKey]) && hm.detected!=='Y';
     return `<tr><td style="${S.td}"><b>${hm.name}</b></td>
-        <td style="${S.td}">${hm.limit.toFixed(3)}</td>
-        <td style="${S.td}${detNd?';'+S.nd:''}">${detText}</td>
+        <td style="${S.td}">${escReportText(limText)}</td>
+        <td style="${S.td}${detNd?';'+S.nd:''}">${escReportText(detText)}</td>
         ${wlCell(hm.el,hm.wl,'metal')}</tr>`;
   }).join('');
 
@@ -4746,24 +4762,97 @@ function rawPreviewHTML(){
 const REPORT_BODY_CACHE={};   // sample label -> {html, editable, dataSig}
 function reportBodyKey(s,i){ return (s&&s.label)||('report-'+(i!=null?i:0)); }
 function reportDataSig(s){
-  return JSON.stringify({wl:s.wlOverrides||{}, fld:s.fieldOverrides||{}});
+  return JSON.stringify({wl:s.wlOverrides||{}, fld:s.fieldOverrides||{},
+    type:s.type||'', batch:s.batch||''});
 }
 function clearReportBodies(){ for(const k in REPORT_BODY_CACHE) delete REPORT_BODY_CACHE[k]; }
-// Pull hand-edited heavy-metal "Detected" text out of the live DOM into the sample object.
+function escReportText(v){
+  return String(v==null?'':v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function cellPlainText(td){
+  if(!td) return '';
+  // Drop screen-only badges (error icons) before reading the value.
+  const c=td.cloneNode(true);
+  c.querySelectorAll('.no-export,.rep-err-badge').forEach(n=>n.remove());
+  return (c.textContent||'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+}
+function stripLabelPrefix(text, label){
+  const t=String(text||''), l=String(label||'');
+  if(!l) return t.trim();
+  if(t.toLowerCase().startsWith(l.toLowerCase())) return t.slice(l.length).trim();
+  const i=t.toLowerCase().indexOf(l.toLowerCase());
+  if(i>=0) return t.slice(i+l.length).trim();
+  return t.trim();
+}
+function reportIsLocked(rep){
+  if(!rep) return true;
+  if(FINALIZED) return true;
+  return rep.getAttribute('contenteditable')!=='true';
+}
+function updateReportToolbarName(i){
+  const s=SAMPLES[i]; if(!s) return;
+  const wrap=document.getElementById('reportWrap'+i);
+  const nameEl=wrap&&wrap.querySelector('.rep-tools .name');
+  if(nameEl) nameEl.textContent=(s.batch?s.batch+' ':'')+(s.type||s.label);
+}
+// Pull hand-edited table / header text out of the live DOM into the sample object
+// so a later re-render or download never loses what the analyst typed.
 function syncFieldOverridesFromDom(i){
   const s=SAMPLES[i], rep=reportEls()[i]; if(!s||!rep) return;
   s.fieldOverrides=s.fieldOverrides||{};
-  rep.querySelectorAll('.wlcell[data-tbl="metal"]').forEach(cell=>{
-    const el=cell.getAttribute('data-el');
-    const hm=s.metals.find(m=>m.el===el); if(!hm) return;
-    const tr=cell.closest('tr'); const det=tr&&tr.querySelectorAll('td')[2];
-    if(!det) return;
-    const key='metal:'+el+':detected';
-    const computed=`${hm.detected}${hm.qty?(' — '+hm.qty):''}`.trim();
-    const current=det.textContent.trim();
-    if(current && current!==computed) s.fieldOverrides[key]=current;
-    else delete s.fieldOverrides[key];
+
+  // Sample Type / Batch in the header table — drives export filenames too.
+  const typeLbl=te('lblSampleType'), batchLbl=te('lblBatch');
+  rep.querySelectorAll('td').forEach(td=>{
+    const plain=cellPlainText(td);
+    if(!plain) return;
+    if(typeLbl && plain.toLowerCase().indexOf(String(typeLbl).toLowerCase())===0){
+      const v=stripLabelPrefix(plain, typeLbl).replace(/[⛔⚠️].*$/,'').trim();
+      // Keep error-code crumbs (e.g. "ERR-…") out of the type string.
+      const cleaned=v.replace(/\b(ERR|WARN)-[A-Z0-9-]+\b/g,'').trim();
+      if(cleaned) s.type=cleaned;
+    }else if(batchLbl && plain.toLowerCase().indexOf(String(batchLbl).toLowerCase())===0){
+      const v=stripLabelPrefix(plain, batchLbl);
+      s.batch=v;
+    }
   });
+
+  function setOverride(key, current, computed){
+    const cur=String(current==null?'':current).trim();
+    const base=String(computed==null?'':computed).trim();
+    if(cur && cur!==base) s.fieldOverrides[key]=cur;
+    else delete s.fieldOverrides[key];
+  }
+
+  // Macro / micro: measured (col 1) and claim (col 2)
+  [['macro', s.macro], ['micro', s.additional]].forEach(([tbl, list])=>{
+    (list||[]).forEach(m=>{
+      const cell=rep.querySelector(`.wlcell[data-tbl="${tbl}"][data-el="${m.el}"]`);
+      if(!cell) return;
+      const tr=cell.closest('tr'); if(!tr) return;
+      const tds=tr.querySelectorAll('td');
+      if(tds.length<3) return;
+      const computedMeas=m.kind==='value'?sig3(m.value):(m.kind==='nd'?'Non-Detect':'N/A');
+      const computedClaim=m.claim!=null?String(m.claim):'N/A';
+      setOverride(tbl+':'+m.el+':measured', cellPlainText(tds[1]), computedMeas);
+      setOverride(tbl+':'+m.el+':claim', cellPlainText(tds[2]), computedClaim);
+    });
+  });
+
+  // Heavy metals: limit (col 1) and detected (col 2)
+  (s.metals||[]).forEach(hm=>{
+    const cell=rep.querySelector(`.wlcell[data-tbl="metal"][data-el="${hm.el}"]`);
+    if(!cell) return;
+    const tr=cell.closest('tr'); if(!tr) return;
+    const tds=tr.querySelectorAll('td');
+    if(tds.length<3) return;
+    setOverride('metal:'+hm.el+':limit', cellPlainText(tds[1]), hm.limit.toFixed(3));
+    const computedDet=`${hm.detected}${hm.qty?(' — '+hm.qty):''}`;
+    setOverride('metal:'+hm.el+':detected', cellPlainText(tds[2]), computedDet);
+  });
+
+  updateReportToolbarName(i);
 }
 function syncAllFieldOverrides(){ reportEls().forEach((_,i)=>syncFieldOverridesFromDom(i)); }
 function captureReportBodies(){
@@ -4776,6 +4865,13 @@ function captureReportBodies(){
       dataSig:reportDataSig(s)
     };
   });
+}
+// Flush live edits into SAMPLES, then export — downloads must match what is on screen.
+function prepareReportsForExport(){
+  if(document.activeElement && typeof document.activeElement.blur==='function')
+    document.activeElement.blur();
+  syncAllFieldOverrides();
+  captureReportBodies();
 }
 function applyReportBodies(skipRestore){
   skipRestore=skipRestore||new Set();
@@ -4815,13 +4911,20 @@ function patchReportAfterRecompute(i, onlyTbl, onlyEl){
     cell.textContent=m.wl;
     if(tbl==='metal'){
       if(tds.length<4) return;
-      const key='metal:'+el+':detected';
-      if(!(s.fieldOverrides&&s.fieldOverrides[key])){
+      const detKey='metal:'+el+':detected';
+      const limKey='metal:'+el+':limit';
+      if(!(s.fieldOverrides&&s.fieldOverrides[limKey])){
+        tds[1].textContent=m.limit.toFixed(3);
+      }
+      if(!(s.fieldOverrides&&s.fieldOverrides[detKey])){
         tds[2].innerHTML=`${m.detected}${m.qty?(' — '+m.qty):''}`;
         tds[2].style.cssText=St.td+(m.detected==='Y'?'':';'+St.nd);
       }
-    }else if(tds.length>=2){
-      tds[1].innerHTML=measured(m);
+    }else if(tds.length>=3){
+      if(!(s.fieldOverrides&&s.fieldOverrides[tbl+':'+el+':measured']))
+        tds[1].innerHTML=measured(m);
+      if(!(s.fieldOverrides&&s.fieldOverrides[tbl+':'+el+':claim']))
+        tds[2].innerHTML=m.claim!=null?m.claim:naSpan;
     }
   };
   s.macro.forEach(m=>patch('macro',m.el,m));
@@ -4862,10 +4965,28 @@ function render(opts){
   document.getElementById('panelHandle').style.display='flex';
   if(preserve) applyReportBodies(skipRestore);
   renderWarnings();
-  maybeAutoFinalize();     // lock once nothing needs attention (λ stays editable)
+  maybeAutoFinalize();     // lock once nothing needs attention
   applyFinalizeState();
   showImportNotice();      // and offer to commit
 }
+
+// Persist hand edits as they happen so a download / re-render never loses them.
+let _reportEditSyncTimer=null;
+document.addEventListener('input',e=>{
+  const rep=e.target&&e.target.closest&&e.target.closest('#reports .report');
+  if(!rep) return;
+  const reps=reportEls();
+  const i=reps.indexOf(rep); if(i<0) return;
+  clearTimeout(_reportEditSyncTimer);
+  _reportEditSyncTimer=setTimeout(()=>syncFieldOverridesFromDom(i), 120);
+});
+document.addEventListener('focusout',e=>{
+  const rep=e.target&&e.target.closest&&e.target.closest('#reports .report');
+  if(!rep) return;
+  const reps=reportEls();
+  const i=reps.indexOf(rep); if(i<0) return;
+  syncFieldOverridesFromDom(i);
+});
 
 /* ---- per-report settings popup (sample type + table visibility only) ---- */
 let LAYOUT_REPORT_IDX=null;
@@ -4922,7 +5043,9 @@ function reportTableToggle(i,key,on){
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
 function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remove(); }
 function openWlMenu(cell){
-  closeWlMenu();                   // λ changes stay allowed even when finalized
+  const rep=cell.closest('.report');
+  if(reportIsLocked(rep)) return;   // locked / finalized reports are view-only, including λ
+  closeWlMenu();
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
   const optWl=OPTIMUM_WAVELENGTHS[el];
@@ -4963,8 +5086,9 @@ function dl(blob,name){
   setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 const reportEls=()=>[...document.querySelectorAll('#reports .report')];
-// filename = "<Sample Type> <Sample Batch #>", stripped of illegal characters
+// filename = "<Sample Type> <Sample Batch #>" from the report (including hand edits)
 function fileBase(i){
+  syncFieldOverridesFromDom(i);
   const s=SAMPLES[i];
   const b=[s.type, s.batch].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]+/g,'').trim();
   return b||('report '+(i+1));
@@ -5005,11 +5129,13 @@ function reportExportHTML(r){
 
 /* ---- Word: one file per report ---- */
 function oneWord(i){
+  prepareReportsForExport();
   const r=reportEls()[i]; if(!r) return;
   dl(docFromHTML(reportExportHTML(r)), fileBase(i)+'.doc');
   addLog('EXPORT','Downloaded Word report: '+fileBase(i)+'.doc');
 }
 function downloadAllWordSeparate(){
+  prepareReportsForExport();
   const reps=reportEls();
   addLog('EXPORT',`Downloaded ${reps.length} separate Word report(s)`+(RAW_BYTES?' + raw data Excel':''));
   reps.forEach((r,i)=>setTimeout(()=>dl(docFromHTML(reportExportHTML(r)),fileBase(i)+'.doc'), i*500));
@@ -5053,11 +5179,14 @@ async function reportToPdf(el,filename){
   pdf.save(filename);
 }
 async function onePdf(i){
+  prepareReportsForExport();
   const r=reportEls()[i]; if(!r) return;
-  await reportToPdf(r, fileBase(i)+'.pdf');
-  addLog('EXPORT','Downloaded PDF report: '+fileBase(i)+'.pdf');
+  const name=fileBase(i)+'.pdf';
+  await reportToPdf(r, name);
+  addLog('EXPORT','Downloaded PDF report: '+name);
 }
 async function downloadAllPdfSeparate(){
+  prepareReportsForExport();
   const reps=reportEls();
   addLog('EXPORT',`Downloaded ${reps.length} separate PDF report(s)`+(RAW_BYTES?' + raw data Excel':''));
   for(let i=0;i<reps.length;i++){ await reportToPdf(reps[i], fileBase(i)+'.pdf'); }
@@ -5129,7 +5258,9 @@ function snapshotReportState(){
     snap[s.label]={
       wlOverrides: s.wlOverrides ? {...s.wlOverrides} : {},
       hiddenTables: s.hiddenTables ? {...s.hiddenTables} : {},
-      fieldOverrides: s.fieldOverrides ? {...s.fieldOverrides} : {}
+      fieldOverrides: s.fieldOverrides ? {...s.fieldOverrides} : {},
+      type: s.type||'',
+      batch: s.batch||''
     };
   });
   return snap;
@@ -5141,6 +5272,8 @@ function restoreReportState(snap){
     s.wlOverrides={...saved.wlOverrides};
     s.hiddenTables={...saved.hiddenTables};
     s.fieldOverrides={...(saved.fieldOverrides||{})};
+    if(saved.type) s.type=saved.type;
+    if(saved.batch!=null) s.batch=saved.batch;
     recomputeSample(s);
   });
 }
@@ -5174,8 +5307,8 @@ function setMode(v){ const r=document.querySelector('input[name="mode"][value="'
 function updateWlMenu(){ const v=(document.querySelector('input[name="mode"]:checked')||{}).value;
   const o=document.getElementById('wlChkOpt'), a=document.getElementById('wlChkAvg');
   if(o) o.textContent=v==='optimum'?'✓':''; if(a) a.textContent=v==='average'?'✓':''; }
-function menuDownload(fn){ if(typeof SAMPLES==='undefined'||!SAMPLES.length){ alert('Load or paste raw data first — there are no reports to export yet.'); return; } fn(); }
-function printAll(){ window.print(); }
+function menuDownload(fn){ if(typeof SAMPLES==='undefined'||!SAMPLES.length){ alert('Load or paste raw data first — there are no reports to export yet.'); return; } prepareReportsForExport(); fn(); }
+function printAll(){ prepareReportsForExport(); window.print(); }
 function resetPanelPos(){ const h=document.getElementById('panelHandle'); if(h) h.dispatchEvent(new Event('dblclick')); }
 // Self-heal a stale/broken install: drop the cached app files and reload the
 // latest version. Sample types, users and settings (localStorage) are NOT touched.
@@ -5201,6 +5334,7 @@ function aboutApp(){
 /* ---- Combined exports: every report in ONE file ---- */
 function combinedName(ext){ return 'ICP Reports '+(fmtDate(RAW_DATE)||new Date().toISOString().slice(0,10))+ext; }
 function downloadCombinedWord(){
+  prepareReportsForExport();
   const reps=reportEls(); if(!reps.length) return;
   const brk='<br clear=all style="mso-special-character:line-break;page-break-before:always">';
   const inner=reps.map((r,i)=>(i?brk:'')+reportExportHTML(r)).join('');
@@ -5208,6 +5342,7 @@ function downloadCombinedWord(){
   addLog('EXPORT','Downloaded all reports as one Word doc');
 }
 async function downloadCombinedPdf(){
+  prepareReportsForExport();
   const reps=reportEls(); if(!reps.length) return;
   const {jsPDF}=window.jspdf; const pdf=new jsPDF('p','pt','letter');
   const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
@@ -6465,10 +6600,10 @@ function noticeReview(){
     applyFinalizeState(); setReportsEditable(true);
     addLog('REPORT','Opened reports for review (admin — full editing unlocked)');
   }else{
-    addLog('REPORT','Opened reports for review (analyst — wavelength changes allowed)');
+    addLog('REPORT','Opened reports for review (analyst — locked reports are view-only)');
   }
 }
-// unlock/lock the report bodies for text editing (wavelengths are governed by FINALIZED)
+// unlock/lock the report bodies for text editing (wavelengths follow the same lock)
 function setReportsEditable(edit){
   document.querySelectorAll('#reports .report').forEach(rep=>{
     rep.setAttribute('contenteditable', edit?'true':'false');
