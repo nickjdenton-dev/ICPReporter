@@ -1389,7 +1389,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         const base = b * BLOCK;
         const claim = seriesClaims[el.toLowerCase()];
         const at = k => claim === null ? '' : sigRound(claim * k);
-        row += cell(colName(base + 1) + r, p.date)
+        row += cellDate(colName(base + 1) + r, p.date)
           + cell(colName(base + 2) + r, p.measured)
           + cell(colName(base + 3) + r, claim)
           + cell(colName(base + 4) + r, at(band.warnLo))
@@ -1457,7 +1457,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       const measured = num(r[cols.Measured]);
       if (measured === null) return;                 // Non-Detect / N/A: nothing to plot
       want[target].push({ date: String(r[cols.Date] == null ? '' : r[cols.Date]).trim(),
-                      measured: measured, claim: num(r[cols.LabelClaim]) });
+                      measured: measured, claim: (global.trkClaimNum ? global.trkClaimNum(r[cols.LabelClaim]) : num(r[cols.LabelClaim])) });
     });
     Object.keys(want).forEach(k => want[k].sort((a, b) => dateKey(a.date) - dateKey(b.date)));
     Object.keys(want).forEach(k => {
@@ -1602,11 +1602,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
      not readings, so dotting them implies measurements that don't exist — and a
      marker with no explicit fill picks up Excel's theme colour for that series
      index, which is why the green claim line was sprouting orange dots. */
-  function series(idx, helper, catCol, valCol, color, dashed, lastRow, marker) {
+  function series(idx, helper, catCol, valCol, color, dashed, lastRow, marker, legendTitle) {
     const h = qSheet(helper);
     const span = col => '$' + col + '$2:$' + col + '$' + lastRow;
+    const tx = legendTitle
+      ? '<tx><v>' + esc(legendTitle) + '</v></tx>'
+      : '<tx><strRef><f>' + h + '!' + valCol + '1</f></strRef></tx>';
     return '<ser><idx val="' + idx + '"/><order val="' + idx + '"/>'
-      + '<tx><strRef><f>' + h + '!' + valCol + '1</f></strRef></tx>'
+      + tx
       + '<spPr><a:ln xmlns:a="' + A_NS + '" w="' + (dashed ? 17000 : 22000) + '">'
       + '<a:solidFill><a:srgbClr val="' + color + '"/></a:solidFill>'
       + '<a:prstDash val="' + (dashed ? 'dash' : 'solid') + '"/></a:ln></spPr>'
@@ -1684,23 +1687,30 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
        file, correct, and ignored. */
     return '<scaling><orientation val="minMax"/><max val="' + yBounds.max + '"/><min val="' + yBounds.min + '"/></scaling>';
   }
-  function chartXml(product, element, helper, block, lastRow, yBounds) {
+  function chartXml(product, element, helper, block, lastRow, yBounds, hasClaim) {
     const last = Math.max(2, lastRow || ROWS);
     const base = block * BLOCK;
     const cDate = colName(base + 1), cMeas = colName(base + 2), cClaim = colName(base + 3);
     const cWarnLo = colName(base + 4), cWarnHi = colName(base + 5);
     const cLimLo = colName(base + 6), cLimHi = colName(base + 7);
-    const s = (i, col, color, dashed, marker) => series(i, helper, cDate, col, color, dashed, last, marker);
+    const s = (i, col, color, dashed, marker, title) => series(i, helper, cDate, col, color, dashed, last, marker, title);
     const yScale = valAxScaling(yBounds);
+    const bands = hasClaim !== false;
+    let ser = '';
+    if (bands) {
+      ser = s(0, cLimLo, COLOR.limit, true, false, 'Limit low')
+        + s(1, cLimHi, COLOR.limit, true, false, 'Limit high')
+        + s(2, cWarnLo, COLOR.warn, true, false, 'Warn low')
+        + s(3, cWarnHi, COLOR.warn, true, false, 'Warn high')
+        + s(4, cClaim, COLOR.claim, false, false, 'Claim')
+        + s(5, cMeas, COLOR.measured, false, true, 'Measured');
+    } else {
+      ser = s(0, cMeas, COLOR.measured, false, true, 'Measured');
+    }
     return '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"><chart>'
       + titleEl(product + ' - ' + element)
       + '<plotArea><lineChart><grouping val="standard"/>'
-      + s(0, cLimLo, COLOR.limit, true, false)
-      + s(1, cLimHi, COLOR.limit, true, false)
-      + s(2, cWarnLo, COLOR.warn, true, false)
-      + s(3, cWarnHi, COLOR.warn, true, false)
-      + s(4, cClaim, COLOR.claim, false, false)
-      + s(5, cMeas, COLOR.measured, false, true)
+      + ser
       + '<axId val="10"/><axId val="100"/></lineChart>'
       + '<catAx><axId val="10"/><scaling><orientation val="minMax"/></scaling>'
       + '<delete val="0"/><axPos val="b"/>'
@@ -2231,7 +2241,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           let rid = k < oldIds.length ? oldIds[k] : null;
           if (!rid) rid = await doc.addRel(drw, doc.relTypes.chart, cp);
           doc.setPart(cp, chartXml(s.name, names[k], hName, k, pts.length + 1,
-            axisBoundsForElement(pts, bands)), doc.contentTypes.chart);
+            axisBoundsForElement(pts, bands), drawnClaim(pts) != null), doc.contentTypes.chart);
           anch += anchor(kept, rid);
           kept++;
           out.retargeted++;
@@ -2383,7 +2393,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           let rid = k < ids.length ? ids[k] : null;
           if (!rid) rid = await doc.addRel(drawing, doc.relTypes.chart, cp);
           const yBounds = axisBoundsForElement(pts, bands);
-          doc.setPart(cp, chartXml(product, keep[k], helper.name, k, n + 1, yBounds));
+          const hasClaim = drawnClaim(pts) != null;
+          doc.setPart(cp, chartXml(product, keep[k], helper.name, k, n + 1, yBounds, hasClaim));
           anchors += anchor(ai, rid);
           ai++;
           anchorCount++;
@@ -3090,7 +3101,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
+<<<<<<< HEAD
 const APP_VERSION='v5.17.1';   // bump on each release
+=======
+const APP_VERSION='v5.17.2';   // bump on each release
+>>>>>>> 9d5b3fd (Fix Allure charts: resolve range label claims for trend bands (v5.17.2))
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4254,7 +4269,7 @@ function analyteRow(row,elemCols,a,mode,wlOverrides,table){
   else if(v.value<=0)  kind='nd';
   else {kind='value'; value=v.value*(a.factor||1);}
   return {el:a.el, compound:a.compound, name:a.name, form:a.form, factor:a.factor||1, kind, value,
-          claim:a.claim!=null?a.claim:null, phosphite:!!a.phosphite, wl:wlDisp(v)};
+          claim:analyteClaimFromSpec(a), phosphite:!!a.phosphite, wl:wlDisp(v)};
 }
 
 /* ---- User-added custom specs (persist in localStorage) ----
@@ -5296,12 +5311,44 @@ const TRK_FIELDS=[
 const TRK_HEADERS=TRK_FIELDS.map(f=>f[0]);
 const INSTRUMENT_NAME='Agilent ICP-OES 5800';
 const trkNum=v=>{ const n=parseFloat(v); return isFinite(n)?n:''; };
-function trkClaimNum(v){
-  if(typeof v==='number') return isFinite(v)?v:null;
+/* Label claims may be a single number or a range ("2.5-3.5", "10 to 12").
+   Charts draw against guaranteed minimums, so a range resolves to its floor. */
+function parseClaimValue(v){
+  if(typeof v==='number') return isFinite(v)&&v>0?v:null;
   const s=String(v==null?'':v).trim().replace(/,/g,'');
   if(!s) return null;
+  const range=/^(\d+(?:\.\d+)?)\s*(?:-|–|—|\u2013|\u2014|to)\s*(\d+(?:\.\d+)?)$/i.exec(s);
+  if(range){
+    const a=parseFloat(range[1]), b=parseFloat(range[2]);
+    if(isFinite(a)&&isFinite(b)&&a>0&&b>0) return Math.min(a,b);
+  }
   const n=parseFloat(s);
-  return isFinite(n)?n:null;
+  return isFinite(n)&&n>0?n:null;
+}
+function trkClaimNum(v){ return parseClaimValue(v); }
+function catalogClaimForElement(product, sym, matchNames){
+  if(!sym) return null;
+  const seen=new Set();
+  [product].concat(matchNames||[]).forEach(n=>{
+    const t=String(n==null?'':n).trim();
+    if(!t||seen.has(t.toLowerCase())) return;
+    seen.add(t.toLowerCase());
+    for(const a of analytesForType(t)){
+      if(a.el!==sym) continue;
+      if(a.claimMin!=null&&isFinite(a.claimMin)&&a.claimMin>0) return a.claimMin;
+      const c=parseClaimValue(a.claim);
+      if(c!=null) return c;
+      if(a.claimMax!=null&&isFinite(a.claimMax)&&a.claimMax>0) return a.claimMax;
+    }
+  });
+  return null;
+}
+function analyteClaimFromSpec(a){
+  if(!a) return null;
+  if(a.claimMin!=null&&isFinite(a.claimMin)&&a.claimMin>0) return a.claimMin;
+  const c=parseClaimValue(a.claim);
+  if(c!=null) return c;
+  return null;
 }
 function trackerRecency(imported, date){
   const im=String(imported==null?'':imported).trim();
@@ -5676,14 +5723,8 @@ function unifiedClaimForProductElement(rows, colFor, product, element, matchName
       colFor.Date!==undefined?r[colFor.Date]:'');
     if(rec>=bestRec){ bestRec=rec; latest=c; }
   });
-  if(latest===null){
-    const lookup=matchNames&&matchNames.length?matchNames[0]:product;
-    const hit=analytesForType(lookup).find(a=>a.el===sym);
-    if(!hit&&lookup!==product){
-      const hit2=analytesForType(product).find(a=>a.el===sym);
-      if(hit2&&hit2.claim!=null) latest=hit2.claim;
-    }else if(hit&&hit.claim!=null) latest=hit.claim;
-  }
+  if(latest===null)
+    latest=catalogClaimForElement(product, sym, matchNames);
   return latest;
 }
 function normalizeTrackerClaims(doc, colFor){
@@ -6655,7 +6696,10 @@ window.addEventListener('beforeunload',()=>addLog('SESSION','App closed'));
 function analyteSummary(list){
   return list.map(a=>{
     const conv = a.factor && a.factor!==1 ? ` ×${a.factor}` : '';
-    const claim= a.claim!=null ? ` — claim ${a.claim}%` : '';
+    let claim='';
+    if(a.claimMin!=null&&a.claimMax!=null&&a.claimMin!==a.claimMax)
+      claim=` — claim ${a.claimMin}–${a.claimMax}%`;
+    else if(a.claim!=null) claim=` — claim ${a.claim}%`;
     return `${a.compound}${conv}${claim}`;
   }).join('; ') || '<i>none</i>';
 }
@@ -6704,6 +6748,8 @@ function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); r
 Object.defineProperty(typeof self!=='undefined'?self:window,'trkTabPick',{get:()=>TRK_TAB_PICK});
 (typeof self!=='undefined'?self:window).trkElSymbol=trkElSymbol;
 (typeof self!=='undefined'?self:window).trkCanonElementForType=canonicalElementForType;
+(typeof self!=='undefined'?self:window).trkClaimNum=trkClaimNum;
+(typeof self!=='undefined'?self:window).trkParseClaimValue=parseClaimValue;
 (typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
   return unifiedClaimForProductElement(rows, cols, product, elementKey, matchNames);
 };
@@ -6813,7 +6859,7 @@ function specRowHTML(sp){
   return `<tr class="specRow">
     <td><select class="sEl" style="width:100%;min-width:120px">${els}</select></td>
     <td><input class="sName" type="text" placeholder="optional" value="${(sp.name||'').replace(/"/g,'&quot;')}" style="width:100%" title="Override the default element name on the report"></td>
-    <td><input class="sClaim" type="number" step="any" placeholder="${isHeavy?'limit':'claim'}" value="${sp.claim!=null?sp.claim:''}" style="width:72px"></td>
+    <td><input class="sClaim" type="text" inputmode="decimal" placeholder="${isHeavy?'limit':'claim or min–max'}" value="${sp.claimMin!=null&&sp.claimMax!=null&&sp.claimMin!==sp.claimMax?(sp.claimMin+'-'+sp.claimMax):(sp.claim!=null?sp.claim:'')}" style="width:88px"></td>
     <td><select class="sConv" style="width:100%;min-width:130px" ${isHeavy?'disabled':''}>${conv}</select></td>
     <td><input class="sFactor" type="number" step="any" placeholder="×" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:64px;display:${isCustom&&!isHeavy?'':'none'}"></td>
     <td><input class="sMol" type="text" placeholder="form" value="${molVal.replace(/"/g,'&quot;')}" ${molRO?'readonly':''} style="width:88px;display:${converted?'':'none'};${molRO?'background:#eef2f6':''}"></td>
@@ -6923,7 +6969,20 @@ function collectSpecs(){
   return [...document.querySelectorAll('#specRows .specRow')].map(r=>{
     const el=r.querySelector('.sEl').value;
     if(el==='__add__') return {el:''};
-    const claimV=r.querySelector('.sClaim').value;
+    const claimRaw=r.querySelector('.sClaim').value.trim();
+    let claim=null, claimMin=null, claimMax=null;
+    if(claimRaw){
+      const range=/^(\d+(?:\.\d+)?)\s*(?:-|–|—|\u2013|\u2014|to)\s*(\d+(?:\.\d+)?)$/i.exec(claimRaw);
+      if(range){
+        claimMin=parseFloat(range[1]); claimMax=parseFloat(range[2]);
+        if(isFinite(claimMin)&&isFinite(claimMax)&&claimMin>0&&claimMax>0){
+          claim=Math.min(claimMin, claimMax);
+        }else{ claimMin=null; claimMax=null; }
+      }else{
+        claim=parseFloat(claimRaw);
+        if(!isFinite(claim)||claim<=0) claim=null;
+      }
+    }
     const table=r.querySelector('.sTable').value;
     const cOpt=CONV_OPTIONS[+r.querySelector('.sConv').value];
     const factor = table==='heavy' ? 1 : (cOpt.factor==='custom' ? parseFloat(r.querySelector('.sFactor').value)||1 : cOpt.factor);
@@ -6933,7 +6992,7 @@ function collectSpecs(){
     const name = (r.querySelector('.sName').value.trim()) || elName(el);
     // compound: "Name (Form)" when converted, else "Name (Symbol)" style
     const compound = form ? `${name} (${form})` : (COMPOUND_INFO[el]?COMPOUND_INFO[el].compound:elLabel(el));
-    return {el, name, form:form||undefined, compound, factor, claim:claimV===''?null:parseFloat(claimV), table, wl};
+    return {el, name, form:form||undefined, compound, factor, claim, claimMin, claimMax, table, wl};
   }).filter(s=>s.el);
 }
 function saveSpec(){ requireAdmin('add / edit sample type', _saveSpec); }
@@ -6996,7 +7055,7 @@ function analyteToSpec(a,table){
     const m=String(a.compound).match(/^(.+?)\s*\(([^)]+)\)\s*$/);
     if(m){ name=name||m[1].trim(); form=m[2].trim(); }
   }
-  return {el:a.el, claim:a.claim, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
+  return {el:a.el, claim:a.claim, claimMin:a.claimMin, claimMax:a.claimMax, factor:a.factor, form, name, compound:a.compound, table, wl:a.wl};
 }
 // load all three categories of a type into the editor, tagged by table
 function editType(key){ requireAdmin('edit sample type specifications', ()=>_editType(key)); }
