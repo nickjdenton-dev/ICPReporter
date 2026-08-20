@@ -2614,12 +2614,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid #dde4ea}
   .wlcell{cursor:pointer;border-bottom:1px dotted #9aa}
   .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
-  /* Locked reports (contenteditable off, or globally finalized) cannot change λ. */
-  .report:not([contenteditable="true"]) .wlcell,
+  /* Only Lock & Finalize freezes λ. Individual report lock still allows wavelength picks. */
   #reports.finalized .wlcell{
     cursor:default;border-bottom:0;pointer-events:none;
   }
-  .report:not([contenteditable="true"]) .wlcell:hover,
   #reports.finalized .wlcell:hover{background:transparent;box-shadow:none}
   #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
           box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:12px;max-height:260px;overflow:auto;min-width:150px}
@@ -3108,7 +3106,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.3';   // bump on each release
+const APP_VERSION='v5.17.4';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3968,10 +3966,33 @@ function editDistance(a,b){
 }
 const FUZZY_MAX=3;   // typos up to this many characters still pass (flagged)
 
+/* NPK-style product names (11-37-0, 10.5-5-5, 0-0-20) are real sample types.
+   They have no letters, so the old "word token" filter dropped them and the
+   report came in with an empty Sample Type / no label claims. */
+function isBatchToken(t){ return /^\d+$/.test(String(t||'')); }
+function isNpkGradeToken(t){
+  return /^\d+(\.\d+)?([\/.-]\d+(\.\d+)?){1,3}$/.test(String(t||'').trim());
+}
+function isTypeToken(t){
+  const s=String(t||'').trim();
+  if(!s || isBatchToken(s)) return false;
+  if(/[A-Za-z]/.test(s)) return true;
+  return isNpkGradeToken(s);
+}
+function isNpkGradeName(s){
+  return /^\d+(\.\d+)?(\s+\d+(\.\d+)?){1,3}$/.test(norm(String(s||'').replace(/[-_\/]+/g,' ')));
+}
+
 // Returns {entry, fuzzy, suggestion, distance}. Tolerates small typos.
 function matchCatalog(type){
   const t=norm(type); if(!t) return {entry:null};
   for(const e of EFF) if(e._aliases.some(a=>a.key===t)) return {entry:e, fuzzy:false};
+  // NPK grades: treat hyphens/slashes as spaces so "11-37-0" matches "11 37 0"
+  const tNpk=isNpkGradeName(type) ? norm(String(type).replace(/[-_\/]+/g,' ')) : null;
+  if(tNpk){
+    for(const e of EFF) if(e._aliases.some(a=>norm(String(a.key).replace(/[-_\/]+/g,' '))===tNpk))
+      return {entry:e, fuzzy:false};
+  }
   // nearest alias by edit distance
   let best=null;
   for(const e of EFF) for(const a of e._aliases){
@@ -3983,7 +4004,13 @@ function matchCatalog(type){
   return {entry:null, suggestion:best&&best.dist<=6?best.disp:null, distance:best?best.dist:null};
 }
 // Hyphens/underscores count as spaces so "Best-K" and "Best K" resolve together.
-function trackerNorm(s){ return norm(String(s).replace(/[-_]+/g,' ').replace(/\s+\d+$/,'')); }
+// Do NOT strip a trailing number from NPK grades ("11 37 0" must stay intact);
+// the trailing-digit strip is only for copy suffixes like "Fertilex 2".
+function trackerNorm(s){
+  const spaced=String(s).replace(/[-_]+/g,' ');
+  if(isNpkGradeName(spaced)) return norm(spaced);
+  return norm(spaced.replace(/\s+\d+$/,''));
+}
 function matchCatalogLoose(type){
   let r=matchCatalog(type);
   if(r.entry) return r;
@@ -4284,9 +4311,11 @@ function saveCustom(o){ localStorage.setItem(CUSTOM_KEY, JSON.stringify(o)); sch
 // then nearest alias within the fuzzy tolerance (mirrors matchCatalog for macro).
 function bestStoreMatch(store,t){
   if(!t) return null;
+  const tNpk=isNpkGradeName(t) ? norm(String(t).replace(/[-_\/]+/g,' ')) : null;
   for(const k in store){
     const r=store[k]; const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
     if(aliases.includes(t)) return r;
+    if(tNpk && aliases.some(a=>norm(String(a).replace(/[-_\/]+/g,' '))===tNpk)) return r;
   }
   let best=null;
   for(const k in store){
@@ -4310,13 +4339,15 @@ function typeMetalsFor(type){
 }
 
 function buildSample(s,elemCols,mode){
-  // The NUMBER token(s) are always the batch #; the WORD token(s) are the type.
-  // e.g. "20436 nutrozen" -> batch "20436", type "nutrozen"; "19700" -> batch "19700", type "".
-  const toks=s.label.trim().split(/\s+/);
-  const batch=toks.filter(t=>/^\d+$/.test(t)).join(' ');
+  // The NUMBER token(s) are always the batch #; everything else is the type.
+  // e.g. "20436 nutrozen" -> batch "20436", type "nutrozen"
+  //      "19668 11-37-0"  -> batch "19668", type "11-37-0"  (NPK grade — no letters)
+  //      "19700"          -> batch "19700", type ""
+  const toks=s.label.trim().split(/\s+/).filter(Boolean);
+  const batch=toks.filter(isBatchToken).join(' ');
   // user override (from the Yes / picker controls) wins over the token-derived type
   const type = TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label]
-                                                   : toks.filter(t=>/[A-Za-z]/.test(t)).join(' ');
+                                                   : toks.filter(isTypeToken).join(' ');
 
   // match the sample type (typo-tolerant) across its three content categories
   const mc=matchCatalog(type);
@@ -4337,7 +4368,7 @@ function buildSample(s,elemCols,mode){
   let error=null;
   if(!type){
     error={code:'ERR-NO-TYPE',
-      msg:'No sample-type word found — only a batch number was present.'};
+      msg:'No sample-type token found — only a batch number was present. NPK grades like 11-37-0 are valid types; if the label was only digits, add a type word or pick one below.'};
   }else if(!known){
     error={code:'ERR-UNKNOWN-TYPE', suggestion:mc.suggestion||null,
       msg:`Sample type "${type}" is not in the label-claim catalog.`+
@@ -5043,8 +5074,9 @@ function reportTableToggle(i,key,on){
 /* ---- per-report wavelength picker (click a λ cell to change the data source) ---- */
 function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remove(); }
 function openWlMenu(cell){
-  const rep=cell.closest('.report');
-  if(reportIsLocked(rep)) return;   // locked / finalized reports are view-only, including λ
+  // λ stays available during review — even when an individual report is locked.
+  // Only Lock & Finalize freezes wavelength picks on every report.
+  if(FINALIZED) return;
   closeWlMenu();
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
@@ -6600,7 +6632,7 @@ function noticeReview(){
     applyFinalizeState(); setReportsEditable(true);
     addLog('REPORT','Opened reports for review (admin — full editing unlocked)');
   }else{
-    addLog('REPORT','Opened reports for review (analyst — locked reports are view-only)');
+    addLog('REPORT','Opened reports for review (analyst — wavelengths editable until Lock & Finalize)');
   }
 }
 // unlock/lock the report bodies for text editing (wavelengths follow the same lock)
