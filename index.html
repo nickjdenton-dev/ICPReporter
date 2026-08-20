@@ -3106,7 +3106,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.4';   // bump on each release
+const APP_VERSION='v5.17.5';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4581,7 +4581,8 @@ function chooseType(label,val){
   reprocessLast();
 }
 
-// toggle a single report between locked (view-only) and unlocked (editable).
+// Individual report lock: unlocks/locks the FULL report body (date, name, values,
+// table text). Wavelength is separate — see FINALIZED / openWlMenu.
 function toggleLock(btn){
   const rep=btn.closest('.report');
   const willEdit = rep.getAttribute('contenteditable')!=='true';
@@ -4593,27 +4594,38 @@ function _applyLock(btn, willEdit){
   rep.setAttribute('contenteditable', willEdit?'true':'false');
   btn.innerHTML = willEdit?ICO_UNLOCK:ICO_LOCK;
   btn.style.opacity = willEdit?'0.8':'0.45';
-  btn.title = willEdit?'Editing unlocked — click to lock':'Locked — click to unlock editing';
+  btn.title = willEdit
+    ? 'Editing unlocked — click to lock report text'
+    : 'Locked — click to unlock report text (λ stays available in review mode)';
   if(!willEdit) captureReportBodies();
   if(willEdit){
+    // Leave finalize mode so λ stays available while this report is open for edit.
     FINALIZED=false;
     USER_UNLOCKED=true;
     document.getElementById('reports').classList.remove('finalized');
   }
   updateFinalizeBar();
-  addLog('REPORT', willEdit?'Report unlocked for editing':'Report locked — changes saved');
+  addLog('REPORT', willEdit?'Report unlocked for text editing':'Report locked — text changes saved');
 }
-function setAllReportsLocked(locked){
+/* Lock every report BODY (contenteditable off). Does NOT control wavelength —
+   λ is gated only by FINALIZED. Used by Lock & Finalize AND by Unlock All
+   (review mode keeps bodies locked until an individual unlock). */
+function setAllReportBodiesLocked(){
   document.querySelectorAll('#reports .report').forEach(rep=>{
-    rep.setAttribute('contenteditable', locked?'false':'true');
+    rep.setAttribute('contenteditable', 'false');
     const btn=rep.querySelector('.lockbtn');
     if(btn){
-      btn.innerHTML=locked?ICO_LOCK:ICO_UNLOCK;
-      btn.style.opacity=locked?'0.45':'0.8';
-      btn.title=locked?'Locked — click to unlock editing':'Editing unlocked — click to lock';
+      btn.innerHTML=ICO_LOCK;
+      btn.style.opacity='0.45';
+      btn.title='Locked — click to unlock report text (λ stays available in review mode)';
     }
   });
-  if(locked) captureReportBodies();
+  captureReportBodies();
+}
+function setAllReportsLocked(locked){
+  // Back-compat name: "locked" always means bodies locked. Unlock-all no longer
+  // mass-opens contenteditable — only individual unlock does that.
+  setAllReportBodiesLocked();
 }
 
 function sampleTableVis(s){
@@ -5022,6 +5034,15 @@ document.addEventListener('focusout',e=>{
 /* ---- per-report settings popup (sample type + table visibility only) ---- */
 let LAYOUT_REPORT_IDX=null;
 function openReportLayout(i){
+  const rep=reportEls()[i];
+  if(FINALIZED){
+    alert('Reports are finalized. Click “Unlock All Reports” for review mode, then unlock this report to change its settings.');
+    return;
+  }
+  if(rep && rep.getAttribute('contenteditable')!=='true'){
+    alert('Unlock this report first to change its settings.');
+    return;
+  }
   LAYOUT_REPORT_IDX=i;
   populateReportLayoutModal(i);
   document.getElementById('reportLayoutModal').classList.add('open');
@@ -5395,10 +5416,15 @@ async function downloadCombinedPdf(){
   addLog('EXPORT','Downloaded all reports as one PDF');
 }
 
-/* ---- Finalize: one toggle that locks/unlocks every report ----
-   FINALIZED makes reports fully read-only: no text edits, no wavelength changes,
-   no per-report layout controls. Auto-engages once every error is resolved
-   (unless the user has deliberately unlocked). ---- */
+/* ---- Finalize: global gate for wavelength (and “done reviewing”) ----
+   Review mode (FINALIZED=false):
+     • Report bodies stay locked unless individually unlocked
+     • Wavelength IS editable
+     • Sample-attention corrections (type picker / error modal) still work
+   Finalize mode (FINALIZED=true):
+     • Report bodies locked
+     • Wavelength frozen
+   Individual unlock is the ONLY way to edit date / name / results / labels. ---- */
 let FINALIZED=false, USER_UNLOCKED=false;
 function unresolvedCount(){ return (typeof SAMPLES!=='undefined'?SAMPLES:[]).filter(s=>s.error).length; }
 function applyFinalizeState(){
@@ -5408,20 +5434,20 @@ function applyFinalizeState(){
 }
 function toggleFinalize(){
   if(FINALIZED){
-    requireAdmin('unlock all reports for editing', ()=>{
+    requireAdmin('return to review mode', ()=>{
       FINALIZED=false; USER_UNLOCKED=true;
-      setAllReportsLocked(false);
+      setAllReportBodiesLocked();   // bodies stay locked — only λ + corrections open
       applyFinalizeState();
-      addLog('REPORT','All reports unlocked for editing');
+      addLog('REPORT','Review mode — wavelengths editable; unlock a report to edit its text');
     });
     return;
   }
   if(unresolvedCount()>0) return;
   requireAdmin('lock and finalize all reports', ()=>{
     FINALIZED=true; USER_UNLOCKED=false;
-    setAllReportsLocked(true);
+    setAllReportBodiesLocked();
     applyFinalizeState();
-    addLog('REPORT','All reports finalized & locked');
+    addLog('REPORT','All reports finalized & locked (including wavelengths)');
     openTracker();
   });
 }
@@ -5435,13 +5461,14 @@ function updateFinalizeBar(){
   hint.style.fontSize='17px';
   if(FINALIZED){
     btn.textContent='Unlock All Reports'; btn.className='act sec'; btn.disabled=false;
-    btn.title='Unlock every report for editing (admin)';
-    hint.innerHTML=ICO_LOCK; hint.title='Reports are finalized and locked';
+    btn.title='Return to review — wavelengths editable; unlock individual reports to edit text';
+    hint.innerHTML=ICO_LOCK; hint.title='Finalized — text and wavelengths locked';
   }else{
     btn.textContent='Lock & Finalize Reports'; btn.className='act'; btn.disabled=bad>0;
     btn.title = bad>0 ? ('Resolve the '+bad+' sample(s) that need attention above before finalizing.')
-                      : 'Lock every report (view-only)';
-    hint.innerHTML=ICO_UNLOCK; hint.title = bad>0 ? (bad+' sample(s) still need attention') : 'Unlocked';
+                      : 'Finalize — lock text and freeze wavelengths on every report';
+    hint.innerHTML=ICO_UNLOCK; hint.title = bad>0 ? (bad+' sample(s) still need attention')
+                      : 'Review mode — λ editable; unlock a report to edit its text';
   }
 }
 /* =====================================================================
@@ -6601,15 +6628,14 @@ async function importTrackerHistory(){
   }
 }
 
-// Auto-lock once nothing needs attention. Wavelengths stay editable even when
-// finalized -- only report text and the layout controls are locked down.
+// Auto-finalize once nothing needs attention: freeze text AND wavelengths.
 function maybeAutoFinalize(){
   if(!SAMPLES.length || FINALIZED || USER_UNLOCKED) return;
   if(unresolvedCount()===0){
     FINALIZED=true;
-    setAllReportsLocked(true);
+    setAllReportBodiesLocked();
     applyFinalizeState();
-    addLog('REPORT','All errors resolved — reports auto-finalized & locked (wavelengths remain editable)');
+    addLog('REPORT','All errors resolved — reports auto-finalized & locked (including wavelengths)');
   }
 }
 
@@ -6624,26 +6650,29 @@ function showImportNotice(){
   n.style.display='flex';
 }
 function noticeCommit(){ closeImportNotice(); openTracker(); }
-// "Review data" — opens the reports for review at whatever this user is allowed to change
+// "Review data" — review mode: λ + attention fixes only; individual unlock for text
 function noticeReview(){
   closeImportNotice();
   if(isAdmin()){
-    FINALIZED=false; USER_UNLOCKED=true;   // keep it unlocked through later re-renders
-    applyFinalizeState(); setReportsEditable(true);
-    addLog('REPORT','Opened reports for review (admin — full editing unlocked)');
+    FINALIZED=false; USER_UNLOCKED=true;   // stay out of auto-finalize while reviewing
+    setAllReportBodiesLocked();
+    applyFinalizeState();
+    addLog('REPORT','Opened reports for review (λ editable; unlock a report to edit its text)');
   }else{
     addLog('REPORT','Opened reports for review (analyst — wavelengths editable until Lock & Finalize)');
   }
 }
-// unlock/lock the report bodies for text editing (wavelengths follow the same lock)
+// Force every report body locked/unlocked. Prefer setAllReportBodiesLocked() —
+// mass contenteditable=true is no longer the review-mode path.
 function setReportsEditable(edit){
+  if(!edit){ setAllReportBodiesLocked(); return; }
   document.querySelectorAll('#reports .report').forEach(rep=>{
-    rep.setAttribute('contenteditable', edit?'true':'false');
+    rep.setAttribute('contenteditable', 'true');
     const btn=rep.querySelector('.lockbtn');
     if(btn){
-      btn.innerHTML=edit?ICO_UNLOCK:ICO_LOCK;
-      btn.style.opacity=edit?'0.8':'0.45';
-      btn.title=edit?'Editing unlocked — click to lock':'Locked — click to unlock editing';
+      btn.innerHTML=ICO_UNLOCK;
+      btn.style.opacity='0.8';
+      btn.title='Editing unlocked — click to lock report text';
     }
   });
 }
