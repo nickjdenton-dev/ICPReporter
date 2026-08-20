@@ -4368,7 +4368,7 @@ function buildSample(s,elemCols,mode){
   let error=null;
   if(!type){
     error={code:'ERR-NO-TYPE',
-      msg:'No sample-type word found — only a batch number was present.'};
+      msg:'No sample-type token found — only a batch number was present. NPK grades like 11-37-0 are valid types; if the label was only digits, add a type word or pick one below.'};
   }else if(!known){
     error={code:'ERR-UNKNOWN-TYPE', suggestion:mc.suggestion||null,
       msg:`Sample type "${type}" is not in the label-claim catalog.`+
@@ -6632,7 +6632,7 @@ function noticeReview(){
     applyFinalizeState(); setReportsEditable(true);
     addLog('REPORT','Opened reports for review (admin — full editing unlocked)');
   }else{
-    addLog('REPORT','Opened reports for review (analyst — locked reports are view-only)');
+    addLog('REPORT','Opened reports for review (analyst — wavelengths editable until Lock & Finalize)');
   }
 }
 // unlock/lock the report bodies for text editing (wavelengths follow the same lock)
