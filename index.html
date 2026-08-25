@@ -3502,10 +3502,11 @@ async function submitBug(){
     addLog('BUG','Send error: '+errMsg);
   }
   if(result&&result.ok){
-    msg.textContent='✅ Report emailed to the developers. Thank you!';
+    msg.textContent='✅ Report emailed to the developers. Thank you! You can close this window when ready.';
     addLog('BUG','Report delivered via FormSubmit ('+result.via+')');
     if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
-    setTimeout(closeBug,2200); return;
+    if(btn) btn.disabled=false;
+    return;
   }
   const detail=result?bugRelayDetail(result.j, result.status, result.raw):errMsg;
   addLog('BUG','Relay failed: '+detail);
