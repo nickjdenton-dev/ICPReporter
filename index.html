@@ -2639,7 +2639,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     .report{box-shadow:none;width:auto;min-height:auto;padding:0.5in 0.6in;page-break-after:always}
     .report:last-child{page-break-after:auto}
   }
+  /* bug report — honeypot hidden from humans, visible to naive bots */
+  .bug-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
+  #bugTurnstile{margin-top:12px;min-height:65px}
 </style>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 
@@ -2986,8 +2990,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <div style="font-size:13px;color:#666;margin-bottom:10px">Describe what happened. Your current session's activity log is automatically included and sent to the developers to help diagnose the issue.</div>
     <textarea id="bugText" placeholder="What were you doing? What went wrong? What did you expect?"
        style="width:100%;height:130px;padding:9px;border:1px solid #aaa;border-radius:5px;font-size:13px;resize:vertical"></textarea>
-    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
-      <button class="act" onclick="submitBug()">Send to developers</button>
+    <label class="bug-hp" aria-hidden="true">Leave blank<input type="text" id="bugHp" tabindex="-1" autocomplete="off"></label>
+    <div id="bugTurnstile"></div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="act" id="bugSendBtn" onclick="submitBug()" disabled>Send to developers</button>
       <span id="bugMsg" style="font-size:13px;color:#0f4c81"></span>
     </div>
     </div>
@@ -3106,7 +3112,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.5';   // bump on each release
+const APP_VERSION='v5.17.6';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3339,10 +3345,52 @@ async function exportLog(){
    via a FormSubmit relay (no user email client, no account, no key).
    The developer address is obfuscated; the FIRST report triggers a one-time
    confirmation email FormSubmit sends to that address (click once to activate).
+   Cloudflare Turnstile blocks automated submissions through the UI; a honeypot
+   and FormSubmit _honey field catch naive scrapers. Replace TURNSTILE_SITE_KEY
+   with your production key from https://dash.cloudflare.com/?to=/:account/turnstile
    ===================================================================== */
 const BUG_ENDPOINT='https://formsubmit.co/ajax/'+atob('Y3Nhc3BhZ3lyaWFAZ21haWwuY29t');
-function openBug(){ document.getElementById('bugText').value=''; document.getElementById('bugMsg').textContent=''; document.getElementById('bugModal').classList.add('open'); setTimeout(()=>document.getElementById('bugText').focus(),50); }
-function closeBug(){ document.getElementById('bugModal').classList.remove('open'); }
+const TURNSTILE_SITE_KEY='3x00000000000000000000FF';   // test key — swap for production sitekey
+let bugTurnstileId=null, bugOpenedAt=0;
+function onBugTurnstileReady(token){
+  const btn=document.getElementById('bugSendBtn');
+  if(btn) btn.disabled=!token;
+}
+function resetBugTurnstile(){
+  const el=document.getElementById('bugTurnstile');
+  if(!el||!window.turnstile||!TURNSTILE_SITE_KEY) return;
+  if(bugTurnstileId!=null){ try{turnstile.remove(bugTurnstileId);}catch(_){} bugTurnstileId=null; }
+  el.innerHTML='';
+  const btn=document.getElementById('bugSendBtn');
+  if(btn) btn.disabled=true;
+  bugTurnstileId=turnstile.render(el,{
+    sitekey:TURNSTILE_SITE_KEY, theme:'light',
+    callback:onBugTurnstileReady,
+    'expired-callback':()=>onBugTurnstileReady(''),
+    'error-callback':()=>onBugTurnstileReady('')
+  });
+}
+function openBug(){
+  document.getElementById('bugText').value='';
+  document.getElementById('bugHp').value='';
+  document.getElementById('bugMsg').textContent='';
+  document.getElementById('bugModal').classList.add('open');
+  bugOpenedAt=Date.now();
+  const btn=document.getElementById('bugSendBtn');
+  if(btn) btn.disabled=!!TURNSTILE_SITE_KEY;
+  setTimeout(()=>{
+    document.getElementById('bugText').focus();
+    if(window.turnstile) resetBugTurnstile();
+    else window._bugTurnstilePending=true;
+  },50);
+}
+function closeBug(){
+  document.getElementById('bugModal').classList.remove('open');
+  if(bugTurnstileId!=null&&window.turnstile){ try{turnstile.remove(bugTurnstileId);}catch(_){} bugTurnstileId=null; }
+}
+window.addEventListener('load',()=>{
+  if(window._bugTurnstilePending&&document.getElementById('bugModal').classList.contains('open')) resetBugTurnstile();
+});
 function buildBugReport(comments){
   const arr=loadLog();
   const logText=arr.map(logLine).join('\n\n');
@@ -3364,7 +3412,15 @@ function saveBugFile(text){
 async function submitBug(){
   const comments=document.getElementById('bugText').value.trim();
   const msg=document.getElementById('bugMsg');
+  if(document.getElementById('bugHp').value) return;   // honeypot — silent for bots
   if(!comments){ msg.textContent='⚠️ Please describe the issue first.'; return; }
+  if(Date.now()-bugOpenedAt<2000){ msg.textContent='Please wait a moment before sending.'; return; }
+  let turnstileToken='';
+  if(TURNSTILE_SITE_KEY){
+    if(!window.turnstile||bugTurnstileId==null){ msg.textContent='Captcha still loading — please wait.'; return; }
+    turnstileToken=turnstile.getResponse(bugTurnstileId)||'';
+    if(!turnstileToken){ msg.textContent='Please complete the captcha first.'; return; }
+  }
   addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
   const {arr, text}=buildBugReport(comments);
   if(location.protocol==='file:'){
@@ -3374,21 +3430,28 @@ async function submitBug(){
   }
   // Preferred: send silently to the developers (no email app opens, no key)
   msg.textContent='Sending…';
+  const btn=document.getElementById('bugSendBtn');
+  if(btn) btn.disabled=true;
   try{
+    const payload={_subject:'ICP Reporter bug report — '+APP_VERSION,
+      name:'ICP Reporter '+APP_VERSION, message:text, _template:'box', _honey:''};
+    if(turnstileToken) payload['cf-turnstile-response']=turnstileToken;
     const res=await fetch(BUG_ENDPOINT,{
       method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
-      body:JSON.stringify({_subject:'ICP Reporter bug report — '+APP_VERSION,
-        name:'ICP Reporter '+APP_VERSION, message:text, _template:'box'})});
+      body:JSON.stringify(payload)});
     const j=await res.json().catch(()=>null);
     if(j && (j.success===true || j.success==='true')){
       msg.textContent='✅ Report sent to the developers. Thank you!';
-      addLog('BUG','Report delivered to developers'); setTimeout(closeBug,2000); return;
+      addLog('BUG','Report delivered to developers');
+      if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
+      setTimeout(closeBug,2000); return;
     }
     addLog('BUG','Relay response: '+JSON.stringify(j));   // record what came back
   }catch(e){ addLog('BUG','Send error: '+(e&&e.message||e)); }
   // Fallback (offline, or relay not yet activated): save a file to forward manually
   saveBugFile(text);
   msg.textContent='✅ Report saved as a file. Please forward it to your provider.';
+  if(btn) btn.disabled=false;
   setTimeout(closeBug,2800);
 }
 
