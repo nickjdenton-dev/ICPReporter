@@ -2529,8 +2529,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   #dropBig:hover{background:#eef4fb;border-color:#0f4c81}
   #dropBig.dragging{background:#dbe8f5;border-color:#0f4c81}
   #dropBig .dz-logo{position:absolute;width:340px;max-width:72%;opacity:.09;filter:grayscale(1) brightness(.35);pointer-events:none}
-  #dropBig .dz-text{position:relative;font-size:21px;font-weight:bold;color:#26496b;max-width:82%}
-  #dropBig .dz-sub{position:relative;font-size:13px;color:#6c7d8e;max-width:78%}
+  #dropBig .dz-text{position:relative;font-size:21px;font-weight:bold;color:#26496b;max-width:82%;pointer-events:none}
+  #dropBig .dz-sub{position:relative;font-size:13px;color:#6c7d8e;max-width:78%;pointer-events:none}
+  /* Invisible editable overlay so the browser context menu includes Paste */
+  #dropPasteCatcher{position:absolute;inset:0;z-index:2;opacity:0;overflow:hidden;
+    color:transparent;caret-color:transparent;outline:none;cursor:pointer;user-select:text}
   #toolbar{margin-top:14px;display:none;gap:10px;flex-wrap:wrap}
   #panelHandle{position:absolute;left:50%;transform:translateX(-50%);bottom:-15px;z-index:55;
     display:none;align-items:center;gap:7px;cursor:ns-resize;user-select:none;
@@ -2738,12 +2741,15 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <div id="dropCenter">
-  <label class="dz" id="dropBig">
+  <div class="dz" id="dropBig" role="button" tabindex="0"
+       aria-label="Drop raw ICP data, click to browse, or paste from clipboard">
     <img class="dz-logo" id="dzLogo" alt="">
-    <div class="dz-text">Drop raw ICP data here — or paste (Ctrl+V)</div>
-    <div class="dz-sub">Drop an .xlsx file, or copy the results grid from the instrument, to generate a report.</div>
+    <div class="dz-text">Drop raw ICP data here — or paste (Ctrl+V / right-click)</div>
+    <div class="dz-sub">Drop an .xlsx file, or copy the results grid from the instrument, then paste here to generate a report.</div>
+    <div id="dropPasteCatcher" contenteditable="true" spellcheck="false"
+         aria-label="Paste raw ICP data" title="Right-click and choose Paste, or press Ctrl+V"></div>
     <input type="file" id="file" accept=".xlsx,.xls" style="display:none">
-  </label>
+  </div>
 </div>
 
 <div id="reports"></div>
@@ -3113,7 +3119,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.9';   // bump on each release
+const APP_VERSION='v5.17.10';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -6807,16 +6813,20 @@ function setReportsEditable(edit){
 }
 
 // Paste anywhere on the main screen imports data — same outcome as dropping a file.
-// (Ignored while typing in a field or pasting inside the paste box itself.)
+// #dropPasteCatcher is contenteditable so the browser shows Paste on right-click; that
+// paste still flows through this same handler → pasteBox → loadPasted().
+// (Ignored while typing in a field or pasting inside the paste-modal box itself.)
 document.addEventListener('paste',e=>{
   const t=e.target;
-  if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  const fromDrop=!!(t && (t.id==='dropPasteCatcher' || (t.closest && t.closest('#dropPasteCatcher'))));
+  if(t && !fromDrop && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
   const cd=e.clipboardData||window.clipboardData; if(!cd) return;
   const html=cd.getData('text/html'), text=cd.getData('text/plain');
   if(!html && !(text&&text.trim())) return;
   e.preventDefault();
   const box=pasteBoxEl(); box.innerHTML = html || ''; if(!html) box.textContent=text;
   box.setAttribute('data-empty','0');
+  if(fromDrop){ const catcher=document.getElementById('dropPasteCatcher'); if(catcher) catcher.innerHTML=''; }
   loadPasted();
 });
 function pasteBoxEl(){ return document.getElementById('pasteBox'); }
@@ -6877,7 +6887,31 @@ function loadPasted(){
 
 const fileInput=document.getElementById('file');
 const drop=document.getElementById('dropBig');
-// NOTE: #dropBig is a <label> wrapping the file input, so clicking it opens the dialog natively.
+const dropPasteCatcher=document.getElementById('dropPasteCatcher');
+// Click / Enter / Space opens the file dialog (was a <label> before; now a div + catcher).
+function openRawFilePicker(){ if(fileInput) fileInput.click(); }
+if(drop){
+  drop.addEventListener('click',e=>{
+    // Let the hidden file input handle its own activation if somehow visible
+    if(e.target===fileInput) return;
+    openRawFilePicker();
+  });
+  drop.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openRawFilePicker(); }
+  });
+}
+// Invisible catcher: allow Paste from the browser context menu, block typing that would trash the UI
+if(dropPasteCatcher){
+  dropPasteCatcher.addEventListener('beforeinput',e=>{
+    // insertFromPaste is handled by the document paste listener (which preventDefaults)
+    if(e.inputType==='insertFromPaste') return;
+    e.preventDefault();
+  });
+  dropPasteCatcher.addEventListener('keydown',e=>{
+    // Don't let Space/Enter on the catcher open the file picker twice via bubbling
+    if(e.key==='Enter'||e.key===' ') e.stopPropagation();
+  });
+}
 fileInput.addEventListener('change',e=>{if(e.target.files[0]){lastFile=e.target.files[0];readFile(lastFile);}});
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('dragging');}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('dragging');}));
