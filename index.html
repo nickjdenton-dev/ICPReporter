@@ -2994,6 +2994,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <div id="bugTurnstile"></div>
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="act" id="bugSendBtn" onclick="submitBug()" disabled>Send to developers</button>
+      <button type="button" id="bugDlBtn" onclick="downloadLastBug()" style="display:none;font-size:12px;padding:4px 10px;border:1px solid #1a6cb0;background:#fff;border-radius:4px;cursor:pointer;color:#0f4c81">Download copy</button>
       <span id="bugMsg" style="font-size:13px;color:#0f4c81"></span>
     </div>
     </div>
@@ -3112,7 +3113,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.6';   // bump on each release
+const APP_VERSION='v5.17.7';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3341,17 +3342,16 @@ async function exportLog(){
 }
 
 /* =====================================================================
-   BUG REPORTING  — comments + session log, sent silently to the developers
-   via a FormSubmit relay (no user email client, no account, no key).
-   The developer address is obfuscated; the FIRST report triggers a one-time
-   confirmation email FormSubmit sends to that address (click once to activate).
-   Cloudflare Turnstile blocks automated submissions through the UI; a honeypot
-   and FormSubmit _honey field catch naive scrapers. Replace TURNSTILE_SITE_KEY
-   with your production key from https://dash.cloudflare.com/?to=/:account/turnstile
+   BUG REPORTING  — comments + session log, emailed via FormSubmit AJAX.
+   Turnstile gates the UI (client-side). FormSubmit's own reCAPTCHA cannot
+   run over AJAX, so we send _captcha:false and rely on Turnstile + honeypot.
+   First-ever submission to an address may require clicking FormSubmit's
+   one-time activation email before delivery works.
    ===================================================================== */
 const BUG_ENDPOINT='https://formsubmit.co/ajax/'+atob('Y3Nhc3BhZ3lyaWFAZ21haWwuY29t');
-const TURNSTILE_SITE_KEY='0x4AAAAAAEblyz0kVKYGx71F';   // test key — swap for production sitekey
-let bugTurnstileId=null, bugOpenedAt=0;
+const TURNSTILE_SITE_KEY='0x4AAAAAAEblyz0kVKYGx71F';   // Cloudflare Turnstile production sitekey
+const BUG_MSG_MAX=45000;   // keep under common form-backend body limits
+let bugTurnstileId=null, bugOpenedAt=0, lastBugText='';
 function onBugTurnstileReady(token){
   const btn=document.getElementById('bugSendBtn');
   if(btn) btn.disabled=!token;
@@ -3374,6 +3374,8 @@ function openBug(){
   document.getElementById('bugText').value='';
   document.getElementById('bugHp').value='';
   document.getElementById('bugMsg').textContent='';
+  const dl=document.getElementById('bugDlBtn'); if(dl) dl.style.display='none';
+  lastBugText='';
   document.getElementById('bugModal').classList.add('open');
   bugOpenedAt=Date.now();
   const btn=document.getElementById('bugSendBtn');
@@ -3393,66 +3395,128 @@ window.addEventListener('load',()=>{
 });
 function buildBugReport(comments){
   const arr=loadLog();
-  const logText=arr.map(logLine).join('\n\n');
-  return {arr, text:['ICP Reporter — Bug Report',
+  let logText=arr.map(logLine).join('\n\n');
+  const head=['ICP Reporter — Bug Report',
     'Version: '+APP_VERSION,
     'Date: '+new Date().toLocaleString('en-US'),
+    'URL: '+(typeof location!=='undefined'?location.href:'-'),
     'User: '+(CURRENT_USER||'-'),
     'License: '+(LICENSE_INFO?(LICENSE_INFO.c+' (exp '+LICENSE_INFO.exp+')'):'-'),
     '='.repeat(70),'',
     'DESCRIPTION:', comments, '',
-    '='.repeat(70),
-    'SESSION ACTIVITY LOG ('+arr.length+' events):','', logText].join('\n')};
+    '='.repeat(70)].join('\n');
+  let text=head+'\nSESSION ACTIVITY LOG ('+arr.length+' events):\n\n'+logText;
+  if(text.length>BUG_MSG_MAX){
+    const keep=Math.max(2000, BUG_MSG_MAX-head.length-80);
+    logText=logText.slice(-keep);
+    text=head+'\nSESSION ACTIVITY LOG (trimmed to last ~'+keep+' chars of '+arr.length+' events):\n\n'+logText;
+  }
+  return {arr, text};
 }
 function saveBugFile(text){
   const fname='ICP Reporter Bug Report '+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
   a.download=fname; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
+function downloadLastBug(){
+  if(!lastBugText) return;
+  saveBugFile(lastBugText);
+  addLog('BUG','Bug report file downloaded by user');
+}
+function bugRelayOk(j){
+  if(!j||typeof j!=='object') return false;
+  return j.success===true || j.success==='true' || /success/i.test(String(j.message||''));
+}
+function bugRelayDetail(j, status, rawSnippet){
+  if(j&&typeof j==='object'){
+    const m=j.message||j.error||j.msg;
+    if(m) return String(m);
+    try{ return JSON.stringify(j).slice(0,240); }catch(_){}
+  }
+  if(rawSnippet&&/just a moment|cf-browser-verification|challenge-platform/i.test(rawSnippet))
+    return 'Relay blocked by bot challenge (HTTP '+status+'). Try again in a moment, or download a copy.';
+  if(status) return 'Relay HTTP '+status+(rawSnippet?': '+rawSnippet.slice(0,120):'');
+  return 'No response from email relay';
+}
+async function postBugRelay(payload){
+  // Attempt 1: JSON (FormSubmit AJAX docs)
+  let res=await fetch(BUG_ENDPOINT,{
+    method:'POST', mode:'cors', credentials:'omit',
+    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify(payload)});
+  let raw=await res.text();
+  let j=null; try{j=JSON.parse(raw);}catch(_){}
+  if(bugRelayOk(j)) return {ok:true, j, status:res.status, raw, via:'json'};
+  // Attempt 2: form-urlencoded (avoids some JSON/preflight edge cases)
+  const body=new URLSearchParams();
+  Object.keys(payload).forEach(k=>{ if(payload[k]!=null) body.set(k, String(payload[k])); });
+  res=await fetch(BUG_ENDPOINT,{
+    method:'POST', mode:'cors', credentials:'omit',
+    headers:{'Content-Type':'application/x-www-form-urlencoded',Accept:'application/json'},
+    body:body.toString()});
+  raw=await res.text();
+  j=null; try{j=JSON.parse(raw);}catch(_){}
+  return {ok:bugRelayOk(j), j, status:res.status, raw, via:'form'};
+}
 async function submitBug(){
   const comments=document.getElementById('bugText').value.trim();
   const msg=document.getElementById('bugMsg');
+  const dl=document.getElementById('bugDlBtn');
   if(document.getElementById('bugHp').value) return;   // honeypot — silent for bots
   if(!comments){ msg.textContent='⚠️ Please describe the issue first.'; return; }
-  if(Date.now()-bugOpenedAt<2000){ msg.textContent='Please wait a moment before sending.'; return; }
-  let turnstileToken='';
+  if(Date.now()-bugOpenedAt<1500){ msg.textContent='Please wait a moment before sending.'; return; }
   if(TURNSTILE_SITE_KEY){
     if(!window.turnstile||bugTurnstileId==null){ msg.textContent='Captcha still loading — please wait.'; return; }
-    turnstileToken=turnstile.getResponse(bugTurnstileId)||'';
+    const turnstileToken=turnstile.getResponse(bugTurnstileId)||'';
     if(!turnstileToken){ msg.textContent='Please complete the captcha first.'; return; }
   }
   addLog('BUG','Bug report submitted');   // recorded before we snapshot the log
-  const {arr, text}=buildBugReport(comments);
+  const {text}=buildBugReport(comments);
+  lastBugText=text;
   if(location.protocol==='file:'){
-    msg.textContent='⚠️ Background send is blocked when running from a local file — saving a copy. (Use the installed/website version to send automatically.)';
-    addLog('BUG','Send skipped — running from file:// ; saved to file instead');
-    saveBugFile(text); setTimeout(closeBug,3000); return;
+    msg.textContent='⚠️ Cannot email from a local file. Open the website version, or download a copy to forward.';
+    addLog('BUG','Send skipped — running from file://');
+    if(dl) dl.style.display='';
+    saveBugFile(text);
+    return;
   }
-  // Preferred: send silently to the developers (no email app opens, no key)
   msg.textContent='Sending…';
+  if(dl) dl.style.display='none';
   const btn=document.getElementById('bugSendBtn');
   if(btn) btn.disabled=true;
+  // _captcha:false is required for AJAX — FormSubmit's reCAPTCHA page cannot run here.
+  // Do not send _honey in the payload (client honeypot is enough); do not forward
+  // Turnstile tokens to FormSubmit (it does not verify them).
+  const payload={
+    _subject:'ICP Reporter bug report — '+APP_VERSION,
+    name:'ICP Reporter '+APP_VERSION,
+    message:text,
+    _template:'box',
+    _captcha:'false'
+  };
+  let result=null, errMsg='';
   try{
-    const payload={_subject:'ICP Reporter bug report — '+APP_VERSION,
-      name:'ICP Reporter '+APP_VERSION, message:text, _template:'box', _honey:''};
-    if(turnstileToken) payload['cf-turnstile-response']=turnstileToken;
-    const res=await fetch(BUG_ENDPOINT,{
-      method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
-      body:JSON.stringify(payload)});
-    const j=await res.json().catch(()=>null);
-    if(j && (j.success===true || j.success==='true')){
-      msg.textContent='✅ Report sent to the developers. Thank you!';
-      addLog('BUG','Report delivered to developers');
-      if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
-      setTimeout(closeBug,2000); return;
-    }
-    addLog('BUG','Relay response: '+JSON.stringify(j));   // record what came back
-  }catch(e){ addLog('BUG','Send error: '+(e&&e.message||e)); }
-  // Fallback (offline, or relay not yet activated): save a file to forward manually
-  saveBugFile(text);
-  msg.textContent='✅ Report saved as a file. Please forward it to your provider.';
+    result=await postBugRelay(payload);
+  }catch(e){
+    errMsg=(e&&e.message)||String(e);
+    addLog('BUG','Send error: '+errMsg);
+  }
+  if(result&&result.ok){
+    msg.textContent='✅ Report emailed to the developers. Thank you!';
+    addLog('BUG','Report delivered via FormSubmit ('+result.via+')');
+    if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
+    setTimeout(closeBug,2200); return;
+  }
+  const detail=result?bugRelayDetail(result.j, result.status, result.raw):errMsg;
+  addLog('BUG','Relay failed: '+detail);
+  // Common first-time setup: FormSubmit emails a confirmation link to activate delivery
+  const needsActivate=/confirm|activat|verify your email|check your email/i.test(detail);
+  msg.textContent=needsActivate
+    ? '⚠️ Check csaspagyria@gmail.com for FormSubmit’s activation email (click once), then try Send again. A downloadable copy is available.'
+    : '⚠️ Email relay did not accept the report ('+detail+'). Download a copy and forward it, or retry.';
+  if(dl) dl.style.display='';
   if(btn) btn.disabled=false;
-  setTimeout(closeBug,2800);
+  if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
 }
 
 /* =====================================================================
