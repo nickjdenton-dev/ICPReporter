@@ -3113,7 +3113,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.7';   // bump on each release
+const APP_VERSION='v5.17.8';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3345,10 +3345,12 @@ async function exportLog(){
    BUG REPORTING  — comments + session log, emailed via FormSubmit AJAX.
    Turnstile gates the UI (client-side). FormSubmit's own reCAPTCHA cannot
    run over AJAX, so we send _captcha:false and rely on Turnstile + honeypot.
-   First-ever submission to an address may require clicking FormSubmit's
-   one-time activation email before delivery works.
+   BUG_ENDPOINT uses FormSubmit's invisible hash (not a raw email) so the
+   destination address is not exposed in page source.
+   First-ever submission may require clicking FormSubmit's one-time
+   activation email before delivery works.
    ===================================================================== */
-const BUG_ENDPOINT='https://formsubmit.co/ajax/'+atob('Y3Nhc3BhZ3lyaWFAZ21haWwuY29t');
+const BUG_ENDPOINT='https://formsubmit.co/ajax/0e49b6312222f263c5ed5a89ec3eac59';
 const TURNSTILE_SITE_KEY='0x4AAAAAAEblyz0kVKYGx71F';   // Cloudflare Turnstile production sitekey
 const BUG_MSG_MAX=45000;   // keep under common form-backend body limits
 let bugTurnstileId=null, bugOpenedAt=0, lastBugText='';
@@ -3502,17 +3504,18 @@ async function submitBug(){
     addLog('BUG','Send error: '+errMsg);
   }
   if(result&&result.ok){
-    msg.textContent='✅ Report emailed to the developers. Thank you!';
+    msg.textContent='✅ Report emailed to the developers. Thank you! You can close this window when ready.';
     addLog('BUG','Report delivered via FormSubmit ('+result.via+')');
     if(bugTurnstileId!=null&&window.turnstile) try{turnstile.reset(bugTurnstileId);}catch(_){}
-    setTimeout(closeBug,2200); return;
+    if(btn) btn.disabled=false;
+    return;
   }
   const detail=result?bugRelayDetail(result.j, result.status, result.raw):errMsg;
   addLog('BUG','Relay failed: '+detail);
   // Common first-time setup: FormSubmit emails a confirmation link to activate delivery
   const needsActivate=/confirm|activat|verify your email|check your email/i.test(detail);
   msg.textContent=needsActivate
-    ? '⚠️ Check csaspagyria@gmail.com for FormSubmit’s activation email (click once), then try Send again. A downloadable copy is available.'
+    ? '⚠️ FormSubmit needs activation — check the developer inbox for their confirmation email (click once), then try Send again. A downloadable copy is available.'
     : '⚠️ Email relay did not accept the report ('+detail+'). Download a copy and forward it, or retry.';
   if(dl) dl.style.display='';
   if(btn) btn.disabled=false;
