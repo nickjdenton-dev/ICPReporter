@@ -2701,6 +2701,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         <button onclick="toggleMenu(this)">Help</button>
         <div class="menu-dd">
           <button onclick="forceRefresh();closeMenus()">Check for updates / Repair</button>
+          <button id="menuInstallBtn" onclick="installPwaFromMenu();closeMenus()">Install on this computer…</button>
           <div class="menu-sep"></div>
           <button onclick="openBug();closeMenus()">Report a bug…</button>
           <button onclick="openTerms();closeMenus()">Terms &amp; Conditions…</button>
@@ -3123,7 +3124,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.1';   // bump on each release
+const APP_VERSION='v5.18.2';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -7024,6 +7025,16 @@ async function installPwa(){
   }catch(_){}
   _deferredInstall=null;
   refreshInstallButtons();
+}
+async function installPwaFromMenu(){
+  if(isStandaloneApp()){
+    alert(APP_NAME+' is already running as an installed app on this computer.');
+    return;
+  }
+  if(_deferredInstall){ await installPwa(); return; }
+  alert('Chrome/Edge has not offered a one-click install yet.\n\n'
+    +'In the browser address bar, click the install icon (monitor), or open the menu ⋮ → Cast, save, and share → Install page as app… / Install '
+    +APP_NAME+'.\n\nUse a normal browser tab (not an already-installed window) at https://app.specreport.org');
 }
 window.addEventListener('beforeinstallprompt',e=>{
   e.preventDefault();
