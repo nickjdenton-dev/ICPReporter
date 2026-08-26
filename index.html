@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ICP Reporter</title>
+<title>Spec. Reporter Pro</title>
 <meta name="theme-color" content="#0f4c81">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -1219,7 +1219,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   // caller passes the lab's own numbers; these are only the fallback.
   const BANDS_DEFAULT = { warnPct: 5, limitPct: 10 };
   const COLOR = { measured: '0F4C81', claim: '2E9B48', warn: 'E08A1E', limit: 'C0392B' };
-  const NOTE = 'Charts update automatically as ICP Reporter commits data.';
+  const NOTE = 'Charts update automatically as Spec. Reporter Pro commits data.';
   const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
   const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
@@ -2704,7 +2704,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           <div class="menu-sep"></div>
           <button onclick="openBug();closeMenus()">Report a bug…</button>
           <button onclick="openTerms();closeMenus()">Terms &amp; Conditions…</button>
-          <button onclick="aboutApp();closeMenus()">About ICP Reporter</button>
+          <button onclick="aboutApp();closeMenus()">About Spec. Reporter Pro</button>
         </div>
       </div>
     </nav>
@@ -3009,8 +3009,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 <div id="licModal" style="display:none;position:fixed;inset:0;background:#17222e;z-index:500;overflow:auto">
   <div style="background:#fff;max-width:460px;margin:10vh auto;border-radius:10px;padding:28px 30px;
        box-shadow:0 8px 40px rgba(0,0,0,.4);text-align:center">
-    <img id="licLogo" alt="ICP Reporter" style="height:54px;margin-bottom:12px">
-    <h2 style="margin:0 0 4px;color:#0f4c81">Activate ICP Reporter</h2>
+    <img id="licLogo" alt="Spec. Reporter Pro" style="height:54px;margin-bottom:12px">
+    <h2 style="margin:0 0 4px;color:#0f4c81">Activate Spec. Reporter Pro</h2>
     <div style="color:#888;font-size:13px;margin-bottom:16px">Enter your license key to unlock the software.</div>
     <textarea id="licInput" placeholder="Paste your license key here"
        style="width:100%;height:88px;padding:9px;border:1px solid #aaa;border-radius:5px;font-family:monospace;font-size:12px;resize:vertical"></textarea>
@@ -3024,7 +3024,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   <div style="background:#fff;max-width:360px;margin:12vh auto;border-radius:10px;padding:28px 30px;
        box-shadow:0 8px 40px rgba(0,0,0,.4);text-align:center">
     <img id="loginLogo" alt="ExcelAg" style="height:54px;margin-bottom:14px">
-    <h2 style="margin:0 0 4px;color:#0f4c81">ICP Reporter</h2>
+    <h2 style="margin:0 0 4px;color:#0f4c81">Spec. Reporter Pro</h2>
     <div id="appVer" style="color:#aaa;font-size:11px;margin-bottom:2px"></div>
     <div style="color:#888;font-size:13px;margin-bottom:18px">Please sign in to continue</div>
     <input id="loginUser" placeholder="Username" style="width:100%;padding:9px;margin-bottom:9px;border:1px solid #aaa;border-radius:5px"
@@ -3118,7 +3118,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 </div>
 
 <script>
-const APP_VERSION='v5.17.12';   // bump on each release
+const APP_NAME='Spec. Reporter Pro';
+const APP_VERSION='v5.18.0';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3130,10 +3131,10 @@ const ICO_GEAR='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stro
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
-`ICP REPORTER — TERMS AND CONDITIONS / END-USER LICENSE AGREEMENT
+`SPEC. REPORTER PRO — TERMS AND CONDITIONS / END-USER LICENSE AGREEMENT
 Last updated: July 6, 2026
 
-These Terms and Conditions ("Terms") govern the license and use of the ICP Reporter software ("Software") provided by ICP Report LLC ("Licensor," "we," "us"). By entering a license key, installing, or using the Software, you ("Licensee," "you," or "your organization") agree to these Terms. If you do not agree, do not use the Software.
+These Terms and Conditions ("Terms") govern the license and use of the Spec. Reporter Pro software ("Software") provided by ICP Report LLC ("Licensor," "we," "us"). By entering a license key, installing, or using the Software, you ("Licensee," "you," or "your organization") agree to these Terms. If you do not agree, do not use the Software.
 
 1. LICENSE GRANT
 Subject to payment of the applicable fees and compliance with these Terms, Licensor grants Licensee a non-exclusive, non-transferable, revocable license to use the Software for the Licensee's internal business purposes for the duration of the paid license term. A single license key is issued per organization and may be used on the computers of that organization's personnel.
@@ -3270,7 +3271,7 @@ function agreeTerms(){
 }
 function declineTerms(){
   addLog('TERMS','Terms & Conditions declined');
-  alert('You must accept the Terms & Conditions to use ICP Reporter.');
+  alert('You must accept the Terms & Conditions to use Spec. Reporter Pro.');
 }
 
 /* =====================================================================
@@ -3322,7 +3323,7 @@ function clearLog(){
 }
 async function exportLog(){
   const arr=loadLog();
-  const header=['ICP Reporter — Activity Log',
+  const header=['Spec. Reporter Pro — Activity Log',
     'Exported: '+new Date().toLocaleString('en-US'),
     'Retention window: '+logRetentionDays()+' days',
     'Total events: '+arr.length,
@@ -3403,7 +3404,7 @@ window.addEventListener('load',()=>{
 function buildBugReport(comments){
   const arr=loadLog();
   let logText=arr.map(logLine).join('\n\n');
-  const head=['ICP Reporter — Bug Report',
+  const head=['Spec. Reporter Pro — Bug Report',
     'Version: '+APP_VERSION,
     'Date: '+new Date().toLocaleString('en-US'),
     'URL: '+(typeof location!=='undefined'?location.href:'-'),
@@ -3421,7 +3422,7 @@ function buildBugReport(comments){
   return {arr, text};
 }
 function saveBugFile(text){
-  const fname='ICP Reporter Bug Report '+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';
+  const fname='Spec. Reporter Pro Bug Report '+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt';
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
   a.download=fname; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
@@ -3495,8 +3496,8 @@ async function submitBug(){
   // Do not send _honey in the payload (client honeypot is enough); do not forward
   // Turnstile tokens to FormSubmit (it does not verify them).
   const payload={
-    _subject:'ICP Reporter bug report — '+APP_VERSION,
-    name:'ICP Reporter '+APP_VERSION,
+    _subject:'Spec. Reporter Pro bug report — '+APP_VERSION,
+    name:'Spec. Reporter Pro '+APP_VERSION,
     message:text,
     _template:'box',
     _captcha:'false'
@@ -3702,13 +3703,13 @@ const BACKUP_KEYS=['icpCatalogEdits','icpCustomSpecs','icpTypeMetals','icpCustom
   'icpTermsAccepted','icpLicense','icpSeededV1','icpMacroFixV1','icpTypeMetalsSeedV1','icpLogoDefaultV1',
   'icpFailsafeDisabled','icpTrendBands'];
 function backupJSON(){
-  const data={app:'ICP Reporter', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
+  const data={app:'Spec. Reporter Pro', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
   BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data.store[k]=v; });
   return JSON.stringify(data,null,2);
 }
 async function exportConfig(){
   const json=backupJSON();
-  const fname='ICP Reporter Backup '+new Date().toISOString().slice(0,10)+'.json';
+  const fname='Spec. Reporter Pro Backup '+new Date().toISOString().slice(0,10)+'.json';
   addLog('BACKUP','Full configuration backed up');
   if(window.showSaveFilePicker){
     try{ const h=await window.showSaveFilePicker({suggestedName:fname,types:[{description:'JSON',accept:{'application/json':['.json']}}]});
@@ -3724,8 +3725,8 @@ function importConfig(ev){
   const f=ev.target.files[0]; if(!f) return; ev.target.value='';
   const fr=new FileReader();
   fr.onload=e=>{
-    let data; try{data=JSON.parse(e.target.result);}catch(_){ alert('That file is not a valid ICP Reporter backup.'); return; }
-    if(!data || data.kind!=='full-backup' || !data.store){ if(!confirm('This doesn’t look like an ICP Reporter backup. Restore anyway?')) return; }
+    let data; try{data=JSON.parse(e.target.result);}catch(_){ alert('That file is not a valid Spec. Reporter Pro backup.'); return; }
+    if(!data || data.kind!=='full-backup' || !data.store){ if(!confirm('This doesn’t look like an Spec. Reporter Pro backup. Restore anyway?')) return; }
     requireAdmin('restore all app data', ()=>{
       if(!confirm('Restore will REPLACE all current sample types, users, template, log and settings on this computer with the backup. Continue?')) return;
       Object.keys(data.store||{}).forEach(k=>{ localStorage.setItem(k, data.store[k]); });
@@ -3770,7 +3771,7 @@ async function toggleAutoBackup(){
   if(!window.showSaveFilePicker){ alert('Automatic backup needs Chrome or Edge. On this browser, use "Back up now…" instead.'); return; }
   requireAdmin('enable auto-backup', async ()=>{
     try{
-      const h=await window.showSaveFilePicker({suggestedName:'ICP Reporter Auto-Backup.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+      const h=await window.showSaveFilePicker({suggestedName:'Spec. Reporter Pro Auto-Backup.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});
       if(!(await verifyPerm(h))){ alert('Permission to write that file was denied.'); return; }
       AUTO_HANDLE=h; await idbSet('autoHandle',h);
       addLog('BACKUP','Auto-backup enabled ('+h.name+')');
@@ -3830,7 +3831,7 @@ if(TEMPLATE.title==='ICP-OES QUALITY REPORT'){ delete TEMPLATE.title; localStora
   localStorage.setItem(FLAG,'1');
 })();
 function T(key){ return TEMPLATE[key]!==undefined ? TEMPLATE[key] : DEFAULT_TEMPLATE[key]; }
-// default report logo = the ICP Reporter app icon; users replace it via Master Template
+// default report logo = the Spec. Reporter Pro app icon; users replace it via Master Template
 function templateLogo(){
   return TEMPLATE.logo || (typeof ICON_LOGO!=='undefined'?ICON_LOGO:(typeof LOGO_DATA!=='undefined'?LOGO_DATA:'logo.jpg'));
 }
@@ -5507,7 +5508,7 @@ function resetPanelPos(){ const h=document.getElementById('panelHandle'); if(h) 
 // Self-heal a stale/broken install: drop the cached app files and reload the
 // latest version. Sample types, users and settings (localStorage) are NOT touched.
 async function forceRefresh(){
-  if(!confirm('Reload the latest version of ICP Reporter?\n\nThis refreshes the app files only — your sample types, users, template and logs are kept.')) return;
+  if(!confirm('Reload the latest version of Spec. Reporter Pro?\n\nThis refreshes the app files only — your sample types, users, template and logs are kept.')) return;
   try{
     if('serviceWorker' in navigator){
       const regs=await navigator.serviceWorker.getRegistrations();
@@ -5521,7 +5522,7 @@ function aboutApp(){
   const modes=['window-controls-overlay','standalone','minimal-ui','fullscreen','browser'];
   const mode=modes.find(m=>matchMedia('(display-mode: '+m+')').matches)||'unknown';
   const wco=(navigator.windowControlsOverlay&&navigator.windowControlsOverlay.visible)?'yes':'no';
-  alert('ICP Reporter '+APP_VERSION+'\n\nQuality-control reporting for ICP-OES raw data.\n© ICP Report LLC'
+  alert('Spec. Reporter Pro '+APP_VERSION+'\n\nQuality-control reporting for ICP-OES raw data.\n© ICP Report LLC'
     +'\n\n— diagnostics —\nDisplay mode: '+mode+'\nTitle-bar overlay active: '+wco);
 }
 
@@ -6163,7 +6164,7 @@ function trackerRowsFor(s, productName){
   const st=trkType(productName||trkDisplayName(s.type||s.label));
   const base={Date:trkDateIso(s.reportDate||''), SampleType:st, Batch:s.batch||'',
               Instrument:INSTRUMENT_NAME, 'Submitted By':who, ImportedAt:when,
-              SourceFile:'ICP Reporter '+APP_VERSION, Flag:''};
+              SourceFile:'Spec. Reporter Pro '+APP_VERSION, Flag:''};
   const out=[];
   const push=(tbl,a)=>{
     out.push(Object.assign({},base,{ Table:tbl, Element:trkElement(a),
@@ -6947,7 +6948,7 @@ document.getElementById('repdate').valueAsDate=new Date();
   if(typeof ICON_LOGO!=='undefined') l.src=ICON_LOGO; else l.style.display='none';
 })();
 // version labels
-document.getElementById('verTag').textContent='ICP Reporter '+APP_VERSION;
+document.getElementById('verTag').textContent=APP_NAME+' '+APP_VERSION;
 updateWlMenu();   // reflect the current wavelength mode in the View menu
 document.getElementById('appVer').textContent=APP_VERSION;
 // PWA: enable "Install app" (desktop icon) + offline caching + push-button updates
@@ -6957,7 +6958,7 @@ function showUpdateBanner(reg){
   b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:400;'
     +'background:#0f4c81;color:#fff;padding:11px 16px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);'
     +'display:flex;gap:12px;align-items:center;font-size:13px';
-  b.innerHTML='<span>🔄 A new version of ICP Reporter is available.</span>'
+  b.innerHTML='<span>🔄 A new version of Spec. Reporter Pro is available.</span>'
     +'<button id="updateNowBtn" style="background:#fff;color:#0f4c81;border:0;border-radius:6px;padding:6px 14px;font-weight:bold;cursor:pointer">Update now</button>'
     +'<button id="updateLaterBtn" style="background:none;border:0;color:#cfe0f0;cursor:pointer;font-size:12px">Later</button>';
   document.body.appendChild(b);
@@ -7073,12 +7074,12 @@ function closeCatalog(){ document.getElementById('catalogModal').classList.remov
 
 // ---- Sample-type library export / import (move specs between devices) ----
 function exportLibrary(){
-  const data={app:'ICP Reporter', kind:'sample-type-library', version:APP_VERSION,
+  const data={app:'Spec. Reporter Pro', kind:'sample-type-library', version:APP_VERSION,
               exported:new Date().toISOString(), edits:loadEdits(), custom:loadCustom(), typeMetals:loadTypeMetals(),
               customElements:loadCustomEls()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='ICP Reporter Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  a.download='Spec. Reporter Pro Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
   addLog('CATALOG','Exported sample-type library');
 }
 function importLibrary(ev){
@@ -7087,7 +7088,7 @@ function importLibrary(ev){
   fr.onload=e=>{
     let data; try{data=JSON.parse(e.target.result);}catch(_){ alert('That file is not a valid sample-type library.'); return; }
     if(!data || data.kind!=='sample-type-library'){
-      if(!confirm('This doesn’t look like an ICP Reporter sample-type library. Import anyway?')) return;
+      if(!confirm('This doesn’t look like an Spec. Reporter Pro sample-type library. Import anyway?')) return;
     }
     requireAdmin('import sample types', ()=>{
       const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls();
