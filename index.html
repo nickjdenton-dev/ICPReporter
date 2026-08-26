@@ -3015,6 +3015,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <textarea id="licInput" placeholder="Paste your license key here"
        style="width:100%;height:88px;padding:9px;border:1px solid #aaa;border-radius:5px;font-family:monospace;font-size:12px;resize:vertical"></textarea>
     <button class="act" style="width:100%;padding:10px;margin-top:10px" onclick="activateLicense()">Activate</button>
+    <button type="button" id="licInstallBtn" class="act sec" style="width:100%;padding:10px;margin-top:8px;display:none" onclick="installPwa()">Install on this computer</button>
+    <div id="licInstallHint" style="display:none;color:#666;font-size:12px;margin-top:8px">Chrome or Edge will add a desktop icon — no manual shortcut steps.</div>
     <div id="licErr" style="color:#c0392b;font-size:13px;margin-top:10px;min-height:16px"></div>
     <div style="color:#aaa;font-size:11px;margin-top:14px">Need a key or renewal? Contact your provider.</div>
   </div>
@@ -3032,6 +3034,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     <input id="loginPass" type="password" placeholder="Password" style="width:100%;padding:9px;margin-bottom:12px;border:1px solid #aaa;border-radius:5px"
        onkeydown="if(event.key==='Enter')doLogin()">
     <button class="act" style="width:100%;padding:10px" onclick="doLogin()">Sign in</button>
+    <button type="button" id="loginInstallBtn" class="act sec" style="width:100%;padding:10px;margin-top:8px;display:none" onclick="installPwa()">Install on this computer</button>
+    <div id="loginInstallHint" style="display:none;color:#666;font-size:12px;margin-top:8px">Chrome or Edge will add a desktop icon — no manual shortcut steps.</div>
     <div id="loginErr" style="color:#c0392b;font-size:13px;margin-top:10px;min-height:16px"></div>
     <div id="licInfo" style="color:#9aa6ad;font-size:11px;margin-top:14px"></div>
   </div>
@@ -3119,7 +3123,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.0';   // bump on each release
+const APP_VERSION='v5.18.1';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -6994,6 +6998,43 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
     if(_reloaded) return; _reloaded=true; location.reload();
   });
 }
+// One-click desktop install (Chrome/Edge). Browser must offer beforeinstallprompt —
+// we cannot force-install silently, but we can open the native Install dialog.
+let _deferredInstall=null;
+function isStandaloneApp(){
+  return matchMedia('(display-mode: standalone)').matches
+    || matchMedia('(display-mode: window-controls-overlay)').matches
+    || matchMedia('(display-mode: minimal-ui)').matches
+    || !!navigator.standalone;
+}
+function refreshInstallButtons(){
+  const show=!!_deferredInstall && !isStandaloneApp();
+  ['licInstallBtn','loginInstallBtn'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display=show?'':'none';
+  });
+  ['licInstallHint','loginInstallHint'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display=show?'':'none';
+  });
+}
+async function installPwa(){
+  if(!_deferredInstall) return;
+  try{
+    _deferredInstall.prompt();
+    await _deferredInstall.userChoice;
+  }catch(_){}
+  _deferredInstall=null;
+  refreshInstallButtons();
+}
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  _deferredInstall=e;
+  refreshInstallButtons();
+});
+window.addEventListener('appinstalled',()=>{
+  _deferredInstall=null;
+  refreshInstallButtons();
+});
+refreshInstallButtons();
 // ask the browser to keep our data (reduces automatic eviction of localStorage)
 if(navigator.storage && navigator.storage.persist){ navigator.storage.persist().catch(()=>{}); }
 // restore the auto-backup + shared-tracker file handles chosen in a previous session
