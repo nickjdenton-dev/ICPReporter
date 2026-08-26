@@ -3124,7 +3124,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.3';   // bump on each release
+const APP_VERSION='v5.18.5';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3185,7 +3185,8 @@ These Terms constitute the entire agreement between the parties regarding the So
 
 15. CONTACT
 ICP Report LLC — Palm Beach County, Florida, USA.
-For license requests, renewals, or support: use the Contact form at https://specreport.org/contact
+For license requests, renewals, or support: email support@specreport.org,
+use the Contact form at https://specreport.org/contact,
 or Help → Report a Bug / Send to Developers (includes version and diagnostics).`;
 
 /* =====================================================================
@@ -3357,11 +3358,10 @@ async function exportLog(){
    BUG REPORTING  — comments + session log, emailed via FormSubmit AJAX.
    Turnstile gates the UI (client-side). FormSubmit's own reCAPTCHA cannot
    run over AJAX, so we send _captcha:false and rely on Turnstile + honeypot.
-   BUG_ENDPOINT uses FormSubmit's invisible hash (not a raw email) so the
-   inbox is not visible in page source. First-ever submission may require
-   clicking FormSubmit's one-time activation email for that endpoint.
+   BUG_ENDPOINT delivers to support@specreport.org. First-ever submission may
+   require clicking FormSubmit's one-time activation email in that inbox.
    ===================================================================== */
-const BUG_ENDPOINT='https://formsubmit.co/ajax/094c1f7501996de795c1ef8adbc33bb7';
+const BUG_ENDPOINT='https://formsubmit.co/ajax/support@specreport.org';
 const TURNSTILE_SITE_KEY='0x4AAAAAAEblyz0kVKYGx71F';   // Cloudflare Turnstile production sitekey
 const BUG_MSG_MAX=45000;   // keep under common form-backend body limits
 let bugTurnstileId=null, bugOpenedAt=0, lastBugText='';
@@ -3526,7 +3526,7 @@ async function submitBug(){
   // Common first-time setup: FormSubmit emails a confirmation link to activate delivery
   const needsActivate=/confirm|activat|verify your email|check your email/i.test(detail);
   msg.textContent=needsActivate
-    ? '⚠️ FormSubmit needs activation — check the developer inbox for their confirmation email (click once), then try Send again. A downloadable copy is available.'
+    ? '⚠️ FormSubmit needs activation — check support@specreport.org for their confirmation email (click once), then try Send again. A downloadable copy is available.'
     : '⚠️ Email relay did not accept the report ('+detail+'). Download a copy and forward it, or retry.';
   if(dl) dl.style.display='';
   if(btn) btn.disabled=false;
