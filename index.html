@@ -2680,6 +2680,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         <div class="menu-dd">
           <button class="admin-only" onclick="openMaster();closeMenus()">Master Template…</button>
           <button onclick="openCatalog();closeMenus()">Sample Types &amp; Label Claims…</button>
+          <button class="admin-only" onclick="loadDemoSampleTypes();closeMenus()">Load demo sample types…</button>
         </div>
       </div>
       <div class="menu">
@@ -2702,6 +2703,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         <div class="menu-dd">
           <button onclick="forceRefresh();closeMenus()">Check for updates / Repair</button>
           <button id="menuInstallBtn" onclick="installPwaFromMenu();closeMenus()">Install on this computer…</button>
+          <button class="admin-only" onclick="loadDemoSampleTypes();closeMenus()">Load demo sample types…</button>
           <div class="menu-sep"></div>
           <button onclick="openBug();closeMenus()">Report a bug…</button>
           <button onclick="openTerms();closeMenus()">Terms &amp; Conditions…</button>
@@ -3124,7 +3126,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.5';   // bump on each release
+const APP_VERSION='v5.18.6';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -7134,6 +7136,16 @@ function exportLibrary(){
   a.download='Spec. Reporter Pro Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
   addLog('CATALOG','Exported sample-type library');
 }
+function mergeSampleTypeLibrary(data, sourceLabel){
+  const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls();
+  Object.assign(edits, data.edits||{});                       // merge (imported wins on conflict)
+  Object.keys(data.custom||{}).forEach(k=>{ custom[k]=data.custom[k]; });
+  Object.keys(data.typeMetals||{}).forEach(k=>{ tm[k]=data.typeMetals[k]; });
+  Object.keys(data.customElements||{}).forEach(k=>{ ce[k]=data.customElements[k]; });
+  saveEdits(edits); saveCustom(custom); saveTypeMetals(tm); saveCustomEls(ce);
+  addLog('CATALOG','Imported sample-type library'+(sourceLabel?' from "'+sourceLabel+'"':''));
+  refreshCatalog();
+}
 function importLibrary(ev){
   const f=ev.target.files[0]; if(!f) return; ev.target.value='';
   const fr=new FileReader();
@@ -7143,18 +7155,21 @@ function importLibrary(ev){
       if(!confirm('This doesn’t look like an Spec. Reporter Pro sample-type library. Import anyway?')) return;
     }
     requireAdmin('import sample types', ()=>{
-      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls();
-      Object.assign(edits, data.edits||{});                       // merge (imported wins on conflict)
-      Object.keys(data.custom||{}).forEach(k=>{ custom[k]=data.custom[k]; });
-      Object.keys(data.typeMetals||{}).forEach(k=>{ tm[k]=data.typeMetals[k]; });
-      Object.keys(data.customElements||{}).forEach(k=>{ ce[k]=data.customElements[k]; });
-      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm); saveCustomEls(ce);
-      addLog('CATALOG',`Imported sample-type library from "${f.name}"`);
-      refreshCatalog();
+      mergeSampleTypeLibrary(data, f.name);
       alert('Sample types imported successfully.');
     });
   };
   fr.readAsText(f);
+}
+/* Fictional catalog used with demo/raw-data-qc-demo.xlsx for tutorial videos.
+   Merges into this computer's sample-type bank; does not replace existing types. */
+const DEMO_TYPE_LIBRARY={"app":"Spec. Reporter Pro","kind":"sample-type-library","version":"v5.18.6","edits":{"fieldgreen org":{"names":"FieldGreen Org","analytes":[{"el":"P","name":"Phosphorus","form":"P₂O₅","compound":"Phosphorus (P₂O₅)","factor":2.2914,"claim":3},{"el":"K","name":"Potassium","form":"K₂O","compound":"Potassium (K₂O)","factor":1.2046,"claim":3}]},"calphos gold":{"names":"CalPhos Gold","analytes":[{"el":"P","name":"Phosphorus","form":"P₂O₅","compound":"Phosphorus (P₂O₅)","factor":2.2914,"claim":14,"phosphite":true}]},"greenleaf 7-7-7":{"names":"GreenLeaf 7-7-7","analytes":[{"el":"P","name":"Phosphorus","form":"P₂O₅","compound":"Phosphorus (P₂O₅)","factor":2.2914,"claim":7},{"el":"K","name":"Potassium","form":"K₂O","compound":"Potassium (K₂O)","factor":1.2046,"claim":7}]},"k-sol":{"names":"K-Sol / 0-0-20","analytes":[{"el":"K","name":"Potassium","form":"K₂O","compound":"Potassium (K₂O)","factor":1.2046,"claim":20}]}},"custom":{"fieldgreen org":{"disp":"FieldGreen Org","aliases":["fieldgreen org"],"specs":[{"el":"Ca","name":"Calcium","form":"","compound":"Calcium (Ca)","factor":1,"claim":4},{"el":"Cu","name":"Copper","form":"","compound":"Copper (Cu)","factor":1,"claim":0.1},{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":0.1}]},"root humic":{"disp":"Root Humic","aliases":["root humic"],"specs":[{"el":"Ca","name":"Calcium","form":"","compound":"Calcium (Ca)","factor":1,"claim":0.5},{"el":"Fe","name":"Iron","form":"","compound":"Iron (Fe)","factor":1,"claim":0.5},{"el":"Mg","name":"Magnesium","form":"","compound":"Magnesium (Mg)","factor":1,"claim":0.4},{"el":"Mn","name":"Manganese","form":"","compound":"Manganese (Mn)","factor":1,"claim":0.15},{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":0.05},{"el":"B","name":"Boron","form":"","compound":"Boron (B)","factor":1,"claim":0.02}]},"root humic with metals":{"disp":"Root Humic with Metals","aliases":["root humic with metals"],"specs":[{"el":"Ca","name":"Calcium","form":"","compound":"Calcium (Ca)","factor":1,"claim":0.5},{"el":"Fe","name":"Iron","form":"","compound":"Iron (Fe)","factor":1,"claim":0.5},{"el":"Mg","name":"Magnesium","form":"","compound":"Magnesium (Mg)","factor":1,"claim":0.4},{"el":"Mn","name":"Manganese","form":"","compound":"Manganese (Mn)","factor":1,"claim":0.15},{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":0.05},{"el":"B","name":"Boron","form":"","compound":"Boron (B)","factor":1,"claim":0.02},{"el":"Cu","name":"Copper","form":"","compound":"Copper (Cu)","factor":1,"claim":0.01}]},"zinc slurry":{"disp":"Zinc Slurry","aliases":["zinc slurry"],"specs":[{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":1.0}]},"humic filler":{"disp":"Humic Filler","aliases":["humic filler"],"specs":[{"el":"Ca","name":"Calcium","form":"","compound":"Calcium (Ca)","factor":1,"claim":0.4},{"el":"Fe","name":"Iron","form":"","compound":"Iron (Fe)","factor":1,"claim":0.1},{"el":"Mg","name":"Magnesium","form":"","compound":"Magnesium (Mg)","factor":1,"claim":0.05}]},"micromix-8":{"disp":"MicroMix-8","aliases":["micromix-8"],"specs":[{"el":"B","name":"Boron","form":"","compound":"Boron (B)","factor":1,"claim":3},{"el":"Mn","name":"Manganese","form":"","compound":"Manganese (Mn)","factor":1,"claim":3.5},{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":4},{"el":"Fe","name":"Iron","form":"","compound":"Iron (Fe)","factor":1,"claim":1},{"el":"Cu","name":"Copper","form":"","compound":"Copper (Cu)","factor":1,"claim":0.5},{"el":"Mg","name":"Magnesium","form":"","compound":"Magnesium (Mg)","factor":1,"claim":0.5}]},"calphos gold":{"disp":"CalPhos Gold","aliases":["calphos gold"],"specs":[{"el":"Ca","name":"Calcium","form":"","compound":"Calcium (Ca)","factor":1,"claim":10}]},"tracerx":{"disp":"TraceRx","aliases":["tracerx"],"specs":[{"el":"Mg","name":"Magnesium","form":"","compound":"Magnesium (Mg)","factor":1,"claim":1},{"el":"B","name":"Boron","form":"","compound":"Boron (B)","factor":1,"claim":0.02},{"el":"Cu","name":"Copper","form":"","compound":"Copper (Cu)","factor":1,"claim":0.1},{"el":"Fe","name":"Iron","form":"","compound":"Iron (Fe)","factor":1,"claim":2},{"el":"Mn","name":"Manganese","form":"","compound":"Manganese (Mn)","factor":1,"claim":2},{"el":"Zn","name":"Zinc","form":"","compound":"Zinc (Zn)","factor":1,"claim":0.5}]}},"typeMetals":{"fieldgreen org":{"disp":"FieldGreen Org","aliases":["fieldgreen org"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"root humic":{"disp":"Root Humic","aliases":["root humic"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"root humic with metals":{"disp":"Root Humic with Metals","aliases":["root humic with metals"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"zinc slurry":{"disp":"Zinc Slurry","aliases":["zinc slurry"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"humic filler":{"disp":"Humic Filler","aliases":["humic filler"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"micromix-8":{"disp":"MicroMix-8","aliases":["micromix-8"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"calphos gold":{"disp":"CalPhos Gold","aliases":["calphos gold"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"greenleaf 7-7-7":{"disp":"GreenLeaf 7-7-7","aliases":["greenleaf 7-7-7"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"tracerx":{"disp":"TraceRx","aliases":["tracerx"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]},"k-sol":{"disp":"K-Sol / 0-0-20","aliases":["k-sol","0-0-20"],"metals":[{"el":"As","name":"Arsenic (As)","limit":0.001},{"el":"Cd","name":"Cadmium (Cd)","limit":0.002},{"el":"Pb","name":"Lead (Pb)","limit":0.009},{"el":"Hg","name":"Mercury (Hg)","limit":0.0}]}},"customElements":{}};
+function loadDemoSampleTypes(){
+  requireAdmin('load demo sample types', ()=>{
+    if(!confirm('Add 10 fictional demo sample types to this computer?\n\nYour existing types are kept. Then drop demo/raw-data-qc-demo.xlsx to generate tutorial reports.')) return;
+    mergeSampleTypeLibrary(DEMO_TYPE_LIBRARY, 'demo pack');
+    alert('Demo sample types added. Drop demo/raw-data-qc-demo.xlsx to run the tutorial batch.');
+  });
 }
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
@@ -7212,6 +7227,7 @@ function renderCatalogList(){
       <button class="act sec lab-sm" onclick="exportLibrary()">Export sample types</button>
       <label class="act sec lab-sm" style="cursor:pointer;display:inline-flex;align-items:center">Import sample types
         <input type="file" accept=".json,application/json" style="display:none" onchange="importLibrary(event)"></label>
+      <button class="act sec lab-sm" onclick="loadDemoSampleTypes()">Load demo types</button>
     </div>`:''}`;
 }
 
