@@ -5398,9 +5398,9 @@ function populateReportLayoutModal(i){
   const cb=(k,label)=>`<label class="lab-chk"><input type="checkbox" ${st[k]?'checked':''} onchange="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
   document.getElementById('reportLayoutTables').innerHTML=
     cb('macro','Macro')+cb('micro','Micro')+cb('heavy','Heavy Metals')+cb('raw','Raw Data Reference');
-  const tOpts=typeOptionsHTML(sampleCatalogType(s));
+  const tOpts=typeOptionsHTML(sampleCatalogPick(s));
   const exactHit=tOpts.indexOf(' selected')>=0;
-  const catalogPick=sampleCatalogType(s);
+  const catalogPick=sampleCatalogPick(s);
   const curOpt = !catalogPick ? '<option value="" selected>\u2014 none detected \u2014</option>'
                : (exactHit ? ''
                     : `<option value="${String(catalogPick).replace(/"/g,'&quot;')}" selected>${String(catalogPick).replace(/</g,'&lt;')} (catalog)</option>`);
