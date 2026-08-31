@@ -2489,7 +2489,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .rep-type-warn:hover{background:#ffe8a3;border-color:#c9a227}
   .rep-type-warn.hard{border-color:#e0a0a0;background:#fdecea}
   .rep-type-warn.hard:hover{background:#f8d4d0;border-color:#c0392b}
-  #reports.finalized .rep-type-warn{pointer-events:auto}
+  .rep-type-cell{cursor:pointer}
+  .rep-type-cell:hover{filter:brightness(.97)}
+  #reports.finalized .rep-type-cell,#reports.finalized .rep-type-warn{pointer-events:auto}
   /* icon-only buttons (edit / delete) with hover tooltips */
   .icobtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
     margin:0 2px;padding:0;border:1px solid #c3ccd5;border-radius:4px;background:#fff;
@@ -3135,7 +3137,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.8';   // bump on each release
+const APP_VERSION='v5.18.9';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4897,8 +4899,9 @@ function reportHTML(s,idx){
          onclick="openSampleErrorFromReport(${JSON.stringify(s.label)},event)">${s.error.soft?'⚠️':'⛔'}</button>`
     : '';
   const typeCellStyle=s.error
-    ? S.td+(s.error.soft?';background:#fff8e1':';background:#fdecea')
+    ? S.td+(s.error.soft?';background:#fff8e1;cursor:pointer':';background:#fdecea;cursor:pointer')
     : S.td;
+  const typeCellClass=s.error?` class="rep-type-cell no-export-hit${s.error.soft?'':' hard'}" title="Click to review sample type"`:'';
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
   const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
@@ -4963,7 +4966,7 @@ function reportHTML(s,idx){
 
     <table style="${S.table}">
       <tr><th width="50%" style="${S.th}">${te('detailsHdr')}</th><th width="50%" style="${S.th}">${te('infoHdr')}</th></tr>
-      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td style="${typeCellStyle}">${te('lblSampleType')} ${s.type||''}${errBadge}</td></tr>
+      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td${typeCellClass} style="${typeCellStyle}">${te('lblSampleType')} ${s.type||''}${errBadge}</td></tr>
       <tr><td style="${S.td}">${te('lblAnalyst')} ${analyst}</td><td style="${S.td}">${te('lblBatch')} ${s.batch||''}</td></tr>
     </table>
 
@@ -5382,23 +5385,23 @@ function setReportWl(i,tbl,el,val){
   patchReportAfterRecompute(i, tbl, el);
 }
 document.addEventListener('mousedown',e=>{
-  const btn=e.target.closest&&e.target.closest('.rep-type-warn');
-  if(!btn) return;
+  const hit=e.target.closest&&e.target.closest('.rep-type-warn, .rep-type-cell');
+  if(!hit) return;
   e.preventDefault();
   e.stopPropagation();
 }, true);
 document.addEventListener('click',e=>{
-  const btn=e.target.closest&&e.target.closest('.rep-type-warn');
-  if(!btn) return;
+  const hit=e.target.closest&&e.target.closest('.rep-type-warn, .rep-type-cell');
+  if(!hit) return;
   e.preventDefault();
   e.stopPropagation();
-  const wrap=btn.closest('.report-wrap');
+  const wrap=hit.closest('.report-wrap');
   if(wrap&&wrap.id){
     const i=+wrap.id.replace('reportWrap','');
     if(isFinite(i)) openSampleErrorByIndex(i);
     return;
   }
-  const label=btn.getAttribute('data-label');
+  const label=hit.getAttribute('data-label');
   if(label) openSampleError(label);
 }, true);
 document.addEventListener('click',e=>{
