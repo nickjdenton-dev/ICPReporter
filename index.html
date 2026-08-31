@@ -3150,7 +3150,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.16';   // bump on each release
+const APP_VERSION='v5.18.17';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -6459,19 +6459,52 @@ function showNewAnalyteNotice(){
       +p.canonical+'" \u2014 chart'+(many?'s':'')+' built on "'+p.tab+'".';
   }).join('   ');
   // index-based: a type name can contain quotes, so never interpolate it into onclick
-  document.getElementById('analyteNoticeActions').innerHTML=list.map((p,i)=>
-    '<button type="button" class="act sec lab-sm" onclick="splitTypeToOwnTab('+i+')">'
-    +'Give \u201C'+String(p.canonical).replace(/</g,'&lt;')+'\u201D its own chart tab</button>').join('');
+  // index-based: a type name may contain quotes or angle brackets
+  document.getElementById('analyteNoticeActions').innerHTML=list.map((p,i)=>{
+    const nm=String(p.canonical).replace(/</g,'&lt;');
+    return '<button type="button" class="act sec lab-sm" onclick="integrateAnalytes('+i+')">'
+      +'Add to \u201C'+nm+'\u201D</button>'
+      +'<button type="button" class="act sec lab-sm" onclick="forkTypeWithAnalytes('+i+')">'
+      +'New sample type from \u201C'+nm+'\u201D</button>';
+  }).join('');
   n.style.display='flex';
 }
-function splitTypeToOwnTab(i){
-  const p=(PENDING_ANALYTE_NOTICE||[])[i]; if(!p) return;
-  TRK_TAB_PICK[p.typeKey]=p.canonical; saveTrkTabPick(TRK_TAB_PICK);
-  addLog('TRACKER','"'+p.canonical+'" will chart on its own tab from the next commit (was sharing "'+p.tab+'")');
-  const m=document.getElementById('trkMsg');
-  if(m){ m.style.color='#0f4c81';
-    m.textContent='"'+p.canonical+'" will get its own chart tab \u2014 commit again to build it.'; }
-  closeAnalyteNotice();
+/* The chart is already built either way. These two decide what the CATALOG
+   says, which is what gives the new analyte a label claim on future reports.
+     integrate -> add the analyte to the existing type
+     fork      -> duplicate the type, carrying every analyte into a new one */
+function _analyteEditorSeed(i){
+  const p=(PENDING_ANALYTE_NOTICE||[])[i]; if(!p) return null;
+  const base=typeSpecsForEditor(catalogKeyForType(p.canonical));
+  const add=newAnalyteRows(base.specs, p.analytes);
+  return {p, base, add};
+}
+function integrateAnalytes(i){
+  const seed=_analyteEditorSeed(i); if(!seed) return;
+  requireAdmin('edit sample type specifications', ()=>{
+    closeAnalyteNotice();
+    openCatalog();                 // openCatalog clears both contexts, so set after
+    EDIT_CONTEXT={key:seed.base.key, name:seed.base.name,
+                  specs:seed.base.specs.concat(seed.add)};
+    renderAddForm();
+    const m=document.getElementById('saveMsg');
+    if(m) m.textContent=seed.add.length
+      ? 'Set a claim for the new analyte(s), then Save.'
+      : 'This type already defines those analytes.';
+  });
+}
+function forkTypeWithAnalytes(i){
+  const seed=_analyteEditorSeed(i); if(!seed) return;
+  requireAdmin('add sample type', ()=>{
+    closeAnalyteNotice();
+    openCatalog();
+    EDIT_CONTEXT=null;
+    PREFILL_TYPE={name:seed.base.name+' Rev 2', from:seed.base.name,
+                  specs:seed.base.specs.concat(seed.add)};
+    renderAddForm();
+    const m=document.getElementById('saveMsg');
+    if(m) m.textContent='Name it, set a claim for the new analyte(s), then Save.';
+  });
 }
 function normalizeTrackerElements(doc, colFor){
   if(!colFor||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
@@ -7588,8 +7621,9 @@ function analyteSummary(list){
     return `${a.compound}${conv}${claim}`;
   }).join('; ') || '<i>none</i>';
 }
-function openCatalog(){ EDIT_CONTEXT=null; rebuildEff(); renderCatalogList(); renderAddForm(); document.getElementById('catalogModal').classList.add('open'); }
-function closeCatalog(){ document.getElementById('catalogModal').classList.remove('open'); }
+var PREFILL_TYPE=null;   // seeds the ADD form (name + rows) without editing in place
+function openCatalog(){ EDIT_CONTEXT=null; PREFILL_TYPE=null; rebuildEff(); renderCatalogList(); renderAddForm(); document.getElementById('catalogModal').classList.add('open'); }
+function closeCatalog(){ PREFILL_TYPE=null; document.getElementById('catalogModal').classList.remove('open'); }
 
 // ---- Sample-type library export / import (move specs between devices) ----
 function exportLibrary(){
@@ -7765,11 +7799,12 @@ function renderAddForm(){
   const ec=EDIT_CONTEXT;
   const existing=allSampleTypes().map(t=>t.disp);
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
-  const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
+  const specHTML=(editing?ec.specs:(PREFILL_TYPE?PREFILL_TYPE.specs:[null])).map(sp=>specRowHTML(sp)).join('');
   const note='Assign each analyte to Macro, Micro, or Qualification. Qualification rows use the limit column and report a yes/no call. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
   // Which of this type's tables feed QC trend charts. Qualification is a yes/no
   // call against a limit, so it has no trend to plot and defaults OFF.
-  const trk = editing ? qcTrackFor(ec.name) : {...QC_TRACK_DEFAULT};
+  const trk = editing ? qcTrackFor(ec.name)
+            : (PREFILL_TYPE ? qcTrackFor(PREFILL_TYPE.from||PREFILL_TYPE.name) : {...QC_TRACK_DEFAULT});
   const trkChk=(k,label)=>`<label class="lab-chk" style="margin-right:16px">`
     +`<input type="checkbox" id="qcTrk_${k}" ${trk[k]?'checked':''}> ${label}</label>`;
   const trkHTML=`<div class="lab-field" style="margin-bottom:10px">
@@ -7790,7 +7825,8 @@ function renderAddForm(){
     </div>`}
     <div id="newWrap" class="lab-field" style="margin-bottom:10px">
       <label>Sample type name(s)</label>
-      <input id="newName" placeholder="Separate alternates with /" value="${editing?String(ec.name).replace(/"/g,'&quot;'):''}" style="width:100%">
+      <input id="newName" placeholder="Separate alternates with /" value="${editing?String(ec.name).replace(/"/g,'&quot;'):(PREFILL_TYPE?String(PREFILL_TYPE.name).replace(/"/g,'&quot;'):'')}" style="width:100%">
+      ${PREFILL_TYPE?'<div class="lab-note" style="margin-top:4px">Copied from \u201C'+String(PREFILL_TYPE.from||'').replace(/</g,'&lt;')+'\u201D. Give this a name of its own \u2014 reusing the original name merges back into it instead of creating a separate type.</div>':''}
     </div>
     <div id="existWrap" class="lab-field" style="margin-bottom:10px;display:none">
       <label>Existing type</label>
@@ -7940,7 +7976,7 @@ function _saveSpec(){
 
   addLog('CATALOG',`${editing?'Edited':'Added'} sample type "${dispName}" — ${macroSpecs.length} macro, ${microSpecs.length} micro, ${metalSpecs.length} heavy-metal`,
     {names:dispName, macro:macroSpecs, micro:microSpecs, metals:metalSpecs});
-  EDIT_CONTEXT=null;
+  EDIT_CONTEXT=null; PREFILL_TYPE=null;
   if(PENDING_TYPE_LABEL!==null){ TYPE_OVERRIDES[PENDING_TYPE_LABEL]=dispName.split('/')[0].trim(); PENDING_TYPE_LABEL=null; closeCatalog(); }
   refreshCatalog();
   const msg=document.getElementById('saveMsg'); if(msg) msg.textContent='✅ Saved.';
@@ -7957,14 +7993,32 @@ function analyteToSpec(a,table){
 }
 // load all three categories of a type into the editor, tagged by table
 function editType(key){ requireAdmin('edit sample type specifications', ()=>_editType(key)); }
-function _editType(key){
+// Load all three categories of a type into editor-row shape, tagged by table.
+function typeSpecsForEditor(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
   const cs=loadCustom()[key], ms=loadTypeMetals()[key];
   const name=(e&&e.names) || (cs&&cs.disp) || (ms&&ms.disp) || key;
   const macro=(e?e._analytes:[]).map(a=>analyteToSpec(a,'macro'));
   const micro=((cs&&cs.specs)||[]).map(a=>analyteToSpec(a,'micro'));
   const metals=((ms&&ms.metals)||[]).map(a=>({el:a.el, claim:a.limit, factor:1, table:'heavy', wl:a.wl}));
-  EDIT_CONTEXT={key, name, specs:macro.concat(micro,metals)};
+  return {key, name, specs:macro.concat(micro,metals)};
+}
+// Editor rows for analytes the type does not define yet. Claim is left BLANK on
+// purpose: a newly seen analyte has no label claim, and inventing one would put
+// a fabricated number on a report.
+function newAnalyteRows(specs, analytes){
+  const have=new Set((specs||[]).map(sp=>String(sp.el||'').toLowerCase()).filter(Boolean));
+  const out=[];
+  (analytes||[]).forEach(a=>{
+    const sym=trkElSymbol(a)||String(a||'').trim();
+    if(!sym||have.has(sym.toLowerCase())) return;
+    have.add(sym.toLowerCase());
+    out.push({el:sym, table:'micro', claim:null, wl:''});
+  });
+  return out;
+}
+function _editType(key){
+  EDIT_CONTEXT=typeSpecsForEditor(key);
   renderAddForm();
 }
 function deleteType(key){ requireAdmin('delete sample type', ()=>_deleteType(key)); }
