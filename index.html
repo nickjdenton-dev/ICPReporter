@@ -2754,8 +2754,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <div id="reports"></div>
 
-<div id="sampleErrModal" class="modal-backdrop" style="z-index:205;align-items:flex-end" onclick="if(event.target===this)closeSampleError()">
-  <div class="modal-panel" style="max-width:520px;width:min(520px,96vw);max-height:min(70vh,520px);overflow-y:auto;margin-top:auto;margin-bottom:16px">
+<div id="sampleErrModal" class="modal-backdrop modal-centered" style="z-index:205" onclick="if(event.target===this)closeSampleError()">
+  <div class="modal-panel" style="max-width:520px;width:min(520px,96vw);max-height:min(70vh,520px);overflow-y:auto">
     <div class="modal-hdr">
       <div style="flex:1;min-width:0">
         <h2 style="font-size:15px">Sample needs attention</h2>
@@ -2921,7 +2921,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <div class="lab-section">
         <div class="lab-section-title">Sample type</div>
         <div class="lab-field">
-          <select id="reportLayoutType" style="width:100%" onchange="reportLayoutChooseType(this.value)"></select>
+          <select id="reportLayoutType" style="width:100%" onchange="reportLayoutChooseType(this.value)" oninput="reportLayoutChooseType(this.value)"></select>
         </div>
         <div class="lab-note" style="margin-top:5px">Re-reads the loaded file and rebuilds this report's tables.</div>
       </div>
@@ -3124,7 +3124,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.5';   // bump on each release
+const APP_VERSION='v5.18.7';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3132,7 +3132,7 @@ const ICO_TRASH='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" str
 const ICO_LOCK='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>';
 const ICO_UNLOCK='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 014.9-.6"/></svg>';
 const ICO_X='<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
-const ICO_GEAR='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M3.3 12.7l1.1-1.1M11.6 4.4l1.1-1.1"/></svg>';
+const ICO_GEAR='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>';
 
 /* Terms & Conditions text — edit freely (fill the [bracketed] items). */
 const TERMS_TEXT=
@@ -3543,10 +3543,25 @@ let CURRENT_USER=null, CURRENT_ROLE=null;   // role: 'admin' | 'user'
 const val=id=>document.getElementById(id).value;
 function loadUsers(){ try{return JSON.parse(localStorage.getItem(USERS_KEY))||{};}catch(e){return {};} }
 function saveUsers(o){ localStorage.setItem(USERS_KEY,JSON.stringify(o)); scheduleAutoBackup(); }
-function hashPw(pw,salt){ let h=5381; const s=salt+'|'+pw; for(let i=0;i<s.length;i++){h=((h<<5)+h)+s.charCodeAt(i);h|=0;} return (h>>>0).toString(16); }
+function hashPw(pw,salt){ let h=5381; const s=salt+'|'+String(pw); for(let i=0;i<s.length;i++){h=((h<<5)+h)+s.charCodeAt(i);h|=0;} return (h>>>0).toString(16); }
 // The built-in admin/password failsafe can be retired once a real admin exists.
 const FAILSAFE_KEY='icpFailsafeDisabled';
-function failsafeOn(){ return !localStorage.getItem(FAILSAFE_KEY); }
+function hasRealAdmin(){
+  const users=loadUsers();
+  return Object.keys(users).some(k=>(users[k].role||'')==='admin');
+}
+function failsafeOn(){
+  // Wiping icpUsers (or never creating an admin) must not leave the app with zero
+  // working logins. The disable flag is leftover state, not a lockout.
+  if(!hasRealAdmin()){
+    if(localStorage.getItem(FAILSAFE_KEY)){
+      localStorage.removeItem(FAILSAFE_KEY);
+      try{ scheduleAutoBackup(); }catch(_){}
+    }
+    return true;
+  }
+  return !localStorage.getItem(FAILSAFE_KEY);
+}
 // how many admin accounts exist right now (failsafe counts as one while enabled)
 function adminCount(){
   let n=failsafeOn()?1:0; const u=loadUsers();
@@ -3555,9 +3570,11 @@ function adminCount(){
 }
 function verifyCreds(u,pw){
   if(!u) return false;
-  if(u==='admin' && pw==='password' && failsafeOn()) return true;   // failsafe (if not retired)
+  u=String(u).trim();
+  pw=String(pw);
+  if(u==='admin' && pw.trim()==='password' && failsafeOn()) return true;   // failsafe (if not retired)
   const rec=loadUsers()[u];
-  return !!(rec && hashPw(pw,rec.salt)===rec.hash);
+  return !!(rec && hashPw(pw.trim(),rec.salt)===rec.hash);
 }
 function deriveRole(u){ return u==='admin' ? 'admin' : ((loadUsers()[u]&&loadUsers()[u].role)||'analyst'); }
 function roleLabel(r){ return r==='admin'?'Admin':'Analyst'; }
@@ -3637,7 +3654,8 @@ function closeUsers(){ document.getElementById('usersModal').classList.remove('o
 function renderUsers(){
   const users=loadUsers();
   const item='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #eee';
-  const rmBtn=(fn)=>`<button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='${fn}'>Remove</button>`;
+  const rmBtn=(fn)=>`<button class="act sec" style="font-size:12px;padding:3px 9px" onclick='${fn}'>Remove</button>`;
+  const pwBtn=(fn)=>`<button class="act sec" style="margin-left:auto;font-size:12px;padding:3px 9px" onclick='${fn}'>Set password</button>`;
   let rows='';
   if(failsafeOn()){
     // the built-in admin can be retired only once another admin exists (never the last admin)
@@ -3648,27 +3666,51 @@ function renderUsers(){
   rows+=Object.keys(users).map(u=>{ const r=users[u]; const nm=((r.first||'')+' '+(r.last||'')).trim();
     return `<div style="${item}"><b>${nm||u}</b>
       <span style="color:#888">— ${roleLabel(r.role||'analyst')}${nm?` · @${u}`:''}</span>
+      ${pwBtn('resetUserPassword('+JSON.stringify(u)+')')}
       ${rmBtn('removeUser('+JSON.stringify(u)+')')}</div>`;}).join('');
   document.getElementById('usersList').innerHTML=rows;
 }
 function addUser(){
   const first=val('newFirst').trim(), last=val('newLast').trim();
-  const u=val('newUser').trim(), pw=val('newUserPass'), role=val('newUserRole');
+  const u=val('newUser').trim(), pw=val('newUserPass').trim(), role=val('newUserRole');
   const msg=document.getElementById('usersMsg');
   if(!first||!last){ msg.textContent='⚠️ First and last name are required.'; return; }
   if(!u||!pw){ msg.textContent='⚠️ Enter a username and password.'; return; }
   if(u==='admin'){ msg.textContent='⚠️ "admin" is reserved.'; return; }
-  const users=loadUsers(); const salt=Math.random().toString(36).slice(2,10);
+  const users=loadUsers();
+  if(users[u]){ msg.textContent='⚠️ "'+u+'" already exists. Use Set password to change it.'; return; }
+  const salt=Math.random().toString(36).slice(2,10);
   users[u]={salt, hash:hashPw(pw,salt), role, first, last}; saveUsers(users);
   addLog('USER','Added user "'+u+'" ('+first+' '+last+') ['+role+']');
+  ['newFirst','newLast','newUser','newUserPass'].forEach(id=>document.getElementById(id).value='');
+  let retired='';
   // Once a real admin exists, retire admin/password so paying labs cannot keep the failsafe.
+  // Do not leave a zombie "admin" session: that made every password fail on re-auth.
   if(role==='admin' && failsafeOn()){
     localStorage.setItem(FAILSAFE_KEY,'1'); scheduleAutoBackup();
     addLog('USER','Built-in admin failsafe auto-retired after first real admin was created');
+    retired=' Built-in admin/password failsafe is now off. Sign in as "'+u+'".';
+    msg.textContent='✅ '+first+' '+last+' ("'+u+'", '+role+') added.'+retired;
+    renderUsers();
+    if(CURRENT_USER==='admin'){
+      alert('New admin "'+u+'" is ready. You will be signed out of the built-in admin account — sign back in as "'+u+'" with the password you just set.');
+      logout();
+    }
+    return;
   }
-  ['newFirst','newLast','newUser','newUserPass'].forEach(id=>document.getElementById(id).value='');
-  const retired=(role==='admin')?' Built-in admin/password failsafe is now off.':'';
-  msg.textContent='✅ '+first+' '+last+' ("'+u+'", '+role+') added.'+retired; renderUsers();
+  msg.textContent='✅ '+first+' '+last+' ("'+u+'", '+role+') added.'; renderUsers();
+}
+function resetUserPassword(u){
+  const users=loadUsers();
+  if(!users[u]) return;
+  const pw=prompt('New password for "'+u+'":');
+  if(pw==null) return;
+  const next=String(pw).trim();
+  if(!next){ document.getElementById('usersMsg').textContent='⚠️ Password cannot be empty.'; return; }
+  const salt=Math.random().toString(36).slice(2,10);
+  users[u].salt=salt; users[u].hash=hashPw(next,salt); saveUsers(users);
+  addLog('USER','Password reset for "'+u+'"');
+  document.getElementById('usersMsg').textContent='✅ Password updated for "'+u+'".';
 }
 // full name of a user for report attribution (built-in admin has no profile name)
 function userFullName(u){ const r=loadUsers()[u]; if(r&&(r.first||r.last)) return (r.first+' '+r.last).trim();
@@ -4056,6 +4098,7 @@ function rebuildEff(){
   Object.keys(edits).forEach(key=>{
     if(!builtinKeys.has(key) && !hidden.has(key)) EFF.push(makeEntry(edits[key].names, edits[key].analytes));
   });
+  EFF.sort((a,b)=>String(a.names).localeCompare(String(b.names),undefined,{sensitivity:'base',numeric:true}));
 }
 // One-time migration: EXISTING installs keep the former preset library (copied into
 // the user's own editable store). BRAND-NEW installs start completely empty.
@@ -4189,23 +4232,49 @@ function catalogKeyByPrefix(type){
   }
   return best?best.key:null;
 }
-function catalogKeyForType(type){
+function catalogRecord(key){
+  if(!key) return {entry:null, custom:null, metals:null};
+  const entry=EFF.find(x=>x._aliases[0].key===key)||null;
+  const custom=loadCustom()[key]||null;
+  const metals=loadTypeMetals()[key]||null;
+  return {entry, custom, metals};
+}
+// One lookup for macro + micro + heavy. A long instrument label that continues
+// past a catalog name ("Evergreen Org from NaNO3") must load ALL of that type's
+// tables, not only the micro store that happened to fuzzy-match.
+function resolveCatalogType(type){
+  const empty={key:null, disp:type||'', entry:null, custom:null, metals:null,
+    fuzzy:false, prefix:false, suggestion:null, distance:null};
+  if(!type) return empty;
   const mc=matchCatalogLoose(type);
-  if(mc.entry) return mc.entry._aliases[0].key;
-  const t=trackerNorm(type);
-  for(const k in loadCustom()){
-    const r=loadCustom()[k];
-    const aliases=(r.aliases&&r.aliases.length)?r.aliases:[k];
-    if(aliases.some(a=>trackerNorm(a)===t||editDistance(trackerNorm(a),t)<=FUZZY_MAX)) return k;
-  }
-  for(const k in loadTypeMetals()){
-    const r=loadTypeMetals()[k];
-    const aliases=(r.aliases&&r.aliases.length)?r.aliases:[k];
-    if(aliases.some(a=>trackerNorm(a)===t||editDistance(trackerNorm(a),t)<=FUZZY_MAX)) return k;
+  if(mc.entry){
+    const key=mc.entry._aliases[0].key;
+    const rec=catalogRecord(key);
+    return {key, disp:mc.entry.names, entry:rec.entry, custom:rec.custom, metals:rec.metals,
+      fuzzy:!!mc.fuzzy, prefix:false, suggestion:mc.suggestion||null, distance:mc.distance||null};
   }
   const prefix=catalogKeyByPrefix(type);
-  if(prefix) return prefix;
-  return t;
+  if(prefix){
+    const rec=catalogRecord(prefix);
+    const disp=(rec.entry&&rec.entry.names)||(rec.custom&&rec.custom.disp)||(rec.metals&&rec.metals.disp)||prefix;
+    return {key:prefix, disp, entry:rec.entry, custom:rec.custom, metals:rec.metals,
+      fuzzy:true, prefix:true, suggestion:String(disp).split('/')[0].trim(), distance:null};
+  }
+  const cs=bestStoreMatch(loadCustom(), norm(type));
+  const tm=bestStoreMatch(loadTypeMetals(), norm(type));
+  if(cs||tm){
+    const disp=(cs&&cs.disp)||(tm&&tm.disp)||type;
+    const key=norm(String(disp).split('/')[0]);
+    const rec=catalogRecord(key);
+    return {key, disp, entry:rec.entry, custom:rec.custom||cs, metals:rec.metals||tm,
+      fuzzy:true, prefix:false, suggestion:String(disp).split('/')[0].trim(), distance:null};
+  }
+  return empty;
+}
+function catalogKeyForType(type){
+  const r=resolveCatalogType(type);
+  if(r.key) return r.key;
+  return trackerNorm(type);
 }
 // Tracker-only merges: Fertilex product runs and QC reference runs chart together on
 // one tab — always "Fertilex-8", never a separate QC tab.
@@ -4493,17 +4562,16 @@ function buildSample(s,elemCols,mode){
   const toks=s.label.trim().split(/\s+/).filter(Boolean);
   const batch=toks.filter(isBatchToken).join(' ');
   // user override (from the Yes / picker controls) wins over the token-derived type
-  const type = TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label]
+  const typeRaw = TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label]
                                                    : toks.filter(isTypeToken).join(' ');
+  const resolved=resolveCatalogType(typeRaw);
+  const type = (TYPE_OVERRIDES[s.label]!==undefined)
+    ? typeRaw
+    : (resolved.prefix && resolved.disp ? String(resolved.disp).split('/')[0].trim() : typeRaw);
 
-  // match the sample type (typo-tolerant) across its three content categories
-  const mc=matchCatalog(type);
-  const entry=mc.entry;                               // macro analytes
-  // resolve micro/heavy against the SAME type the macro matched (canonical key),
-  // so a typo/fuzzy label loads all three tables — not just the macro one.
-  const lookup = entry ? entry._aliases[0].disp : type;
-  const custom=customSpecsFor(lookup);                // micro analytes
-  const typeMetals=typeMetalsFor(lookup);             // heavy metals (null = none defined)
+  const entry=resolved.entry;
+  const custom=(resolved.custom && resolved.custom.specs) || [];
+  const typeMetals=resolved.metals ? (resolved.metals.metals||[]) : null;
   const known = !!entry || custom.length>0 || typeMetals!==null;
 
   // A report conforms to its type: only the tables the type actually defines are shown.
@@ -4517,13 +4585,16 @@ function buildSample(s,elemCols,mode){
     error={code:'ERR-NO-TYPE',
       msg:'No sample-type token found — only a batch number was present. NPK grades like 11-37-0 are valid types; if the label was only digits, add a type word or pick one below.'};
   }else if(!known){
-    error={code:'ERR-UNKNOWN-TYPE', suggestion:mc.suggestion||null,
-      msg:`Sample type "${type}" is not in the label-claim catalog.`+
-          (mc.suggestion?` Did you mean "${mc.suggestion}"?`:'')};
-  }else if(mc.fuzzy && !DISMISSED_FUZZY.has(s.label)){
-    error={code:'WARN-FUZZY-MATCH', soft:true, suggestion:mc.suggestion||null,
-      msg:`Sample type "${type}" didn't match exactly — auto-matched to "${mc.suggestion}" `+
-          `(off by ${mc.distance} character${mc.distance>1?'s':''}). Verify it's correct.`};
+    error={code:'ERR-UNKNOWN-TYPE', suggestion:resolved.suggestion||null,
+      msg:`Sample type "${typeRaw}" is not in the label-claim catalog.`+
+          (resolved.suggestion?` Did you mean "${resolved.suggestion}"?`:'')};
+  }else if((resolved.fuzzy||resolved.prefix) && TYPE_OVERRIDES[s.label]===undefined && !DISMISSED_FUZZY.has(s.label)){
+    error={code:'WARN-FUZZY-MATCH', soft:true, suggestion:resolved.suggestion||null,
+      msg: resolved.prefix
+        ? `Sample type "${typeRaw}" extends catalog type "${resolved.suggestion}" — using that type's Macro, Micro and Heavy Metal claims. Verify it's correct.`
+        : `Sample type "${typeRaw}" didn't match exactly — auto-matched to "${resolved.suggestion}" `+
+          (resolved.distance!=null?`(off by ${resolved.distance} character${resolved.distance>1?'s':''}). `:'')+
+          `Verify it's correct.`};
   }
 
   const macroDefs=analyteDefs.map(a=>({...a}));
@@ -4584,19 +4655,26 @@ function logoHTML(){
   return `<img class="rep-logo-img" src="${templateLogo()}" alt="Company logo" style="height:60px">`;
 }
 
-// dropdown <option>s of every known sample type (catalog + custom-only)
-function typeOptionsHTML(current){
-  // include every known type across macro (EFF), micro (custom) and heavy-metal (typeMetals) stores
-  const seen=new Set(), names=[];
-  const add=(disp,key)=>{ if(!key||seen.has(key))return; seen.add(key); names.push(disp); };
+function cmpTypeName(a,b){
+  return String(a).localeCompare(String(b),undefined,{sensitivity:'base',numeric:true});
+}
+function allSampleTypes(){
+  const seen=new Set(), out=[];
+  const add=(disp,key)=>{ if(!key||seen.has(key)) return; seen.add(key); out.push({key, disp:disp||key}); };
   EFF.forEach(e=>add(e.names, e._aliases[0].key));
   const custom=loadCustom(); Object.keys(custom).forEach(k=>add(custom[k].disp, k));
   const tm=loadTypeMetals(); Object.keys(tm).forEach(k=>add(tm[k].disp, k));
-  // value = first name only (so it matches an alias); label shows all alternates
+  out.sort((a,b)=>cmpTypeName(a.disp,b.disp));
+  return out;
+}
+// dropdown <option>s of every known sample type (catalog + custom-only)
+function typeOptionsHTML(current){
   const cur=String(current||'').trim().toLowerCase();
-  return names.map(n=>{const v=String(n).split('/')[0].trim();
+  return allSampleTypes().map(({disp:n})=>{
+    const v=String(n).split('/')[0].trim();
     const hit=!!cur && String(n).split('/').some(x=>x.trim().toLowerCase()===cur);
-    return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;}).join('');
+    return `<option value="${v.replace(/"/g,'&quot;')}"${hit?' selected':''}>${n}</option>`;
+  }).join('');
 }
 
 // Interactive fix controls for a sample with a type/label error (modal + legacy hooks).
@@ -5207,9 +5285,10 @@ function populateReportLayoutModal(i){
   document.getElementById('reportLayoutTables').innerHTML=
     cb('macro','Macro')+cb('micro','Micro')+cb('heavy','Heavy Metals')+cb('raw','Raw Data Reference');
   const tOpts=typeOptionsHTML(s.type);
+  const exactHit=tOpts.indexOf(' selected')>=0;
   const curOpt = !s.type ? '<option value="" selected>\u2014 none detected \u2014</option>'
-               : (tOpts.indexOf(' selected')<0
-                    ? `<option value="${String(s.type).replace(/"/g,'&quot;')}" selected>${s.type} (not in catalog)</option>` : '');
+               : (exactHit ? ''
+                    : `<option value="${String(s.type).replace(/"/g,'&quot;')}" selected>${String(s.type).replace(/</g,'&lt;')} (current)</option>`);
   const autoOpt = (TYPE_OVERRIDES[s.label]!==undefined)
     ? '<option value="__auto__">\u21ba Use type from sample label</option>' : '';
   document.getElementById('reportLayoutType').innerHTML=
@@ -5219,8 +5298,15 @@ function reportLayoutChooseType(val){
   const i=LAYOUT_REPORT_IDX;
   if(i==null) return;
   const s=SAMPLES[i]; if(!s) return;
+  if(!val) return;
   if(val==='__new__'){ closeReportLayout(); PENDING_TYPE_LABEL=s.label; openCatalog(); return; }
+  const next=val==='__auto__' ? null : String(val).split('/')[0].trim();
+  const cur=(TYPE_OVERRIDES[s.label]!==undefined?TYPE_OVERRIDES[s.label]:s.type)||'';
+  if(next!==null && next.toLowerCase()===String(cur).toLowerCase() && TYPE_OVERRIDES[s.label]!==undefined)
+    return;   // already applied
   chooseType(s.label, val);
+  const idx=sampleIndexForLabel(s.label);
+  LAYOUT_REPORT_IDX = idx>=0 ? idx : LAYOUT_REPORT_IDX;
   setTimeout(()=>{ if(LAYOUT_REPORT_IDX!=null) populateReportLayoutModal(LAYOUT_REPORT_IDX); }, 120);
 }
 function reportTableToggle(i,key,on){
@@ -5470,10 +5556,11 @@ function restoreReportState(snap){
   SAMPLES.forEach(s=>{
     const saved=snap[s.label]; if(!saved) return;
     s.wlOverrides={...saved.wlOverrides};
-    s.hiddenTables={...saved.hiddenTables};
     s.fieldOverrides={...(saved.fieldOverrides||{})};
-    if(saved.type) s.type=saved.type;
-    if(saved.batch!=null) s.batch=saved.batch;
+    // Do not restore type/batch — those come from the label + TYPE_OVERRIDES.
+    // Restoring them undid "change sample type" (Evergreen Org from NaNO3 → Evergreen Org).
+    const typeChanged = TYPE_OVERRIDES[s.label]!==undefined || (saved.type && s.type && saved.type!==s.type);
+    if(!typeChanged) s.hiddenTables={...saved.hiddenTables};
     recomputeSample(s);
   });
 }
@@ -5735,10 +5822,9 @@ function trkElSymbol(elStr){
   return sym||'';
 }
 function analytesForType(type){
-  const mc=matchCatalogLoose(type);
-  const lookup=mc.entry?mc.entry._aliases[0].disp:(type||'');
-  const macro=mc.entry?mc.entry._analytes:[];
-  const micro=customSpecsFor(lookup);
+  const r=resolveCatalogType(type);
+  const macro=r.entry?r.entry._analytes:[];
+  const micro=(r.custom&&r.custom.specs)||[];
   return macro.concat(micro);
 }
 function canonicalElementForType(type, elStr){
@@ -7102,6 +7188,7 @@ loadTrackerHandle();
 })();
 
 // license gate first (offline signed key); on success it proceeds to the login gate
+failsafeOn();   // re-enable built-in admin if every real admin was deleted
 startLicenseGate();
 
 // session start/end logging
@@ -7185,12 +7272,7 @@ function renderCatalogList(){
       <button class="icobtn danger" title="Delete" aria-label="Delete" onclick='deleteType(${JSON.stringify(key)})'>${ICO_TRASH}</button></td>`:'';
   const metalSummary=list=>list.map(m=>`${m.name||m.el} (≤${m.limit}%)`).join('; ');
 
-  const keys=new Set();
-  EFF.forEach(e=>keys.add(e._aliases[0].key));
-  Object.keys(custom).forEach(k=>keys.add(k));
-  Object.keys(tmetals).forEach(k=>keys.add(k));
-
-  const rows=[...keys].sort((a,b)=>catalogTypeName(a).localeCompare(catalogTypeName(b),undefined,{sensitivity:'base'})).map(key=>{
+  const rows=allSampleTypes().map(({key})=>{
     const e=EFF.find(x=>x._aliases[0].key===key);
     const cs=custom[key], ms=tmetals[key];
     const names=catalogTypeName(key);
@@ -7301,10 +7383,7 @@ function renderAddForm(){
   document.getElementById('addTitle').style.display='';
   const editing=!!EDIT_CONTEXT;
   const ec=EDIT_CONTEXT;
-  const existing=(function(){const seen=new Set(),out=[];const add=(d,k)=>{if(k&&!seen.has(k)){seen.add(k);out.push(d);}};
-    EFF.forEach(e=>add(e.names,e._aliases[0].key)); const c=loadCustom();Object.keys(c).forEach(k=>add(c[k].disp,k));
-    const tm=loadTypeMetals();Object.keys(tm).forEach(k=>add(tm[k].disp,k));
-    return out.sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));})();
+  const existing=allSampleTypes().map(t=>t.disp);
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
   const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
   const note='Assign each analyte to Macro, Micro, or Heavy Metal. Heavy-metal rows use the limit column. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
