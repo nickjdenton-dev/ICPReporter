@@ -2286,6 +2286,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       // the header row is all we need, so don't inflate a whole helper part
       const canonFn = global.trkCanonElementForType;
       const symFn = global.trkElSymbol;
+      const chartedFn = global.trkRowIsCharted;
       const bySym = new Map();
       if (keyFn && columns.SampleType !== undefined) {
         const key = keyFn(product);
@@ -2294,6 +2295,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
           if (!st || keyFn(st) !== key) return;
           const rowEl = String(r[columns.Element] == null ? '' : r[columns.Element]).trim();
           if (!rowEl) return;
+          // Qualification rows are yes/no calls against a limit, not a trend.
+          if (chartedFn && columns.Table !== undefined && !chartedFn(product, r[columns.Table])) return;
           const measured = num(r[columns.Measured]);
           if (measured === null) return;
           const canon = canonFn ? canonFn(product, rowEl) : rowEl;
@@ -3141,7 +3144,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.14';   // bump on each release
+const APP_VERSION='v5.18.15';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3862,9 +3865,9 @@ const DEFAULT_TEMPLATE={
   detailsHdr:'Report Details', infoHdr:'Sample Information',
   lblReportDate:'Report Date:', lblAnalyst:'Analyst:', lblSampleType:'Sample Type:', lblBatch:'Sample Batch #:',
   secMacro:'Macro Nutrient Analysis', secMicro:'Micro Nutrient Analysis',
-  secHeavy:'Heavy Metal Qualification', secRaw:'Raw Data Source Reference', secSig:'Report Signature / Approval',
+  secHeavy:'Qualification', secRaw:'Raw Data Source Reference', secSig:'Report Signature / Approval',
   colAnalyte:'Analyte', colMeasured:'Measured Value % w/w', colClaim:'Label Claim % w/w', colWl:'λ (nm)',
-  colElement:'Element', colMetal:'Heavy Metal', colLimit:'Allowed Limit %',
+  colElement:'Element', colMetal:'Qualification', colLimit:'Allowed Limit %',
   colDetected:'Detected (Y/N) – if Yes, list quantity',
   heavyNote:'Table 1 values derived from OMRI — agrocertify.com/news/omri-heavy-metals-requirements',
   phosphiteNote:'* P₂O₅ derived from phosphorous acid (phosphite)',
@@ -4095,6 +4098,12 @@ const HIDE_KEY='icpHiddenBuiltins', EDIT_KEY='icpCatalogEdits';
 const CUSTOM_KEY='icpCustomSpecs';        // user-added micro specs
 const HMETAL_KEY='icpTypeMetals';         // per-type heavy metals
 const CUSTOMEL_KEY='icpCustomElements';   // user-added elements
+/* Per-sample-type, per-table QC tracking. A table that is NOT QC-tracked still
+   commits its rows to the tracker's All Data sheet -- it is simply never turned
+   into a chart series. The Qualification table (formerly "Heavy Metal") holds
+   yes/no calls against a limit, so charting it is meaningless; it defaults OFF.
+   Shape: { "<catalog key>": {macro:bool, micro:bool, qual:bool} } */
+const QCTRACK_KEY='icpQcTracked';
 function loadHidden(){ try{return JSON.parse(localStorage.getItem(HIDE_KEY))||[];}catch(e){return [];} }
 function saveHidden(a){ localStorage.setItem(HIDE_KEY, JSON.stringify(a)); scheduleAutoBackup(); }
 function loadEdits(){ try{return JSON.parse(localStorage.getItem(EDIT_KEY))||{};}catch(e){return {};} }
@@ -4442,6 +4451,43 @@ const HEAVY_METALS = [
   {el:'Hg', name:'Mercury (Hg)',  limit:0.000}
 ];
 // the active heavy-metal list + table visibility come from the master template (admin-editable)
+/* ---- QC tracking flags (which tables feed charts) ---- */
+const QC_TRACK_DEFAULT={macro:true, micro:true, qual:false};
+var _QC_STORE=null, _QC_BY_TYPE=null;
+function qcTrackCacheClear(){ _QC_STORE=null; _QC_BY_TYPE=null; }
+function loadQcTrack(){
+  if(_QC_STORE) return _QC_STORE;
+  try{ _QC_STORE=JSON.parse(localStorage.getItem(QCTRACK_KEY))||{}; }catch(e){ _QC_STORE={}; }
+  return _QC_STORE;
+}
+function saveQcTrack(o){ localStorage.setItem(QCTRACK_KEY, JSON.stringify(o)); qcTrackCacheClear(); scheduleAutoBackup(); }
+function qcTrackFor(type){
+  const k=String(type||'');
+  if(!_QC_BY_TYPE) _QC_BY_TYPE=new Map();
+  if(_QC_BY_TYPE.has(k)) return _QC_BY_TYPE.get(k);
+  const r=loadQcTrack()[trackerCatalogKey(type)]||{};
+  const out={macro: r.macro!==undefined?!!r.macro:QC_TRACK_DEFAULT.macro,
+             micro: r.micro!==undefined?!!r.micro:QC_TRACK_DEFAULT.micro,
+             qual:  r.qual !==undefined?!!r.qual :QC_TRACK_DEFAULT.qual};
+  _QC_BY_TYPE.set(k,out);
+  return out;
+}
+/* The Table column carries a STABLE internal key, never the customer's display
+   label -- renaming the table on the report must not change how rows classify.
+   "Heavy Metal" is still accepted so trackers written before the rename keep
+   classifying correctly. An unrecognised table stays tracked: never silently
+   drop a customer's analyte off its chart. */
+function trkTableKind(tbl){
+  const t=String(tbl||'').toLowerCase().trim();
+  if(t.indexOf('macro')===0) return 'macro';
+  if(t.indexOf('micro')===0) return 'micro';
+  if(t.indexOf('qual')===0||t.indexOf('heavy')===0) return 'qual';
+  return 'macro';
+}
+// Hook read by QcCharts (see global.trkRowIsCharted in sync()).
+function trkRowIsCharted(product, tableCell){
+  return !!qcTrackFor(product)[trkTableKind(tableCell)];
+}
 function heavyMetalList(){ return (typeof T==='function' && T('heavyMetals')) ? T('heavyMetals') : HEAVY_METALS; }
 function tableVis(){ return (typeof T==='function' && T('showTables')) ? T('showTables') : {macro:true,micro:true,heavy:true,raw:true}; }
 
@@ -6350,6 +6396,9 @@ async function detectNewAnalytesForCommit(doc, picked, tabMap, colFor){
     trackerRowsFor(s, info.name).forEach(r=>{
       const el=String(r.Element||'').trim();
       if(!el) return;
+      // THE BUG: every analyte in the "Confirm chart placement" dialog was a
+      // heavy metal, because this loop only ever read r.Element and never r.Table.
+      if(!trkRowIsCharted(s.type||s.label, r.Table)) return;
       const sym=trkElSymbol(el);
       if(sym){
         if(!haveSyms.has(sym)) missing.add(el);
@@ -6489,6 +6538,7 @@ function normalizeTrackerClaims(doc, colFor){
   return n;
 }
 function productsFromTrackerData(rows,colFor){
+  qcTrackCacheClear();   // flags may have changed since the last commit
   const byKey={};
   if(!colFor||colFor.SampleType===undefined||colFor.Element===undefined) return [];
   rows.forEach(r=>{
@@ -6499,6 +6549,9 @@ function productsFromTrackerData(rows,colFor){
     byKey[key].matchNames.add(st);
     const el=String(r[colFor.Element]==null?'':r[colFor.Element]).trim();
     if(!el) return;
+    // Untracked table (Qualification by default) -> row still lives in All Data,
+    // but it never creates or feeds a chart.
+    if(colFor.Table!==undefined && !trkRowIsCharted(st, r[colFor.Table])) return;
     const meas=r[colFor.Measured];
     const numVal=typeof meas==='number'?meas:parseFloat(String(meas==null?'':meas).replace(/,/g,''));
     if(!isFinite(numVal)) return;
@@ -6557,7 +6610,7 @@ function trackerRowsFor(s, productName){
       'Wavelength (nm)': a.wl||'' })); };
   (s.macro||[]).forEach(a=>push('Macro',a));
   (s.additional||[]).forEach(a=>push('Micro',a));
-  (s.metals||[]).forEach(m=>out.push(Object.assign({},base,{ Table:'Heavy Metal',
+  (s.metals||[]).forEach(m=>out.push(Object.assign({},base,{ Table:'Qualification',
       Element:(m.name||m.el||''),
       Measured: m.qty?trkNum(m.qty):'', 'Limit (%)': m.limit!=null?trkNum(m.limit):'',
       Detected:m.detected||'', 'Wavelength (nm)':m.wl||'' })));
