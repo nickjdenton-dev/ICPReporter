@@ -3138,7 +3138,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.12';   // bump on each release
+const APP_VERSION='v5.18.13';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4169,6 +4169,17 @@ function editDistance(a,b){
   return d[m][n];
 }
 const FUZZY_MAX=3;   // typos up to this many characters still pass (flagged)
+/* Fuzzy tolerance MUST scale with name length. A flat 3 edits let short product
+   names collide outright: "Base H" -> "Best K" is exactly 3 edits, and
+   "Fertilex" -> "Fortex" is 3 edits, yet those are entirely different products
+   with different guarantees. Anything <= 4 characters must match exactly. */
+function fuzzyLimit(a,b){
+  const n=Math.min(String(a||'').length, String(b||'').length);
+  if(n<=4) return 0;
+  if(n<=6) return 1;
+  if(n<=9) return 2;
+  return FUZZY_MAX;
+}
 
 /* NPK-style product names (11-37-0, 10.5-5-5, 0-0-20) are real sample types.
    They have no letters, so the old "word token" filter dropped them and the
@@ -4211,18 +4222,31 @@ function matchCatalog(type){
     for(const e of EFF) if(e._aliases.some(a=>norm(String(a.key).replace(/[-_\/]+/g,' '))===tNpk))
       return {entry:e, fuzzy:false};
   }
-  // nearest alias by edit distance
-  let best=null;
+  // nearest alias by edit distance (within the length-scaled tolerance)
+  let best=null, okBest=null;
   const vType=typeVariantToken(type);
   for(const e of EFF) for(const a of e._aliases){
     const vAlias=typeVariantToken(a.disp||a.key);
     if(vType!==vAlias && (vType||vAlias)) continue;   // Fertilex-8 must not → Fortex
-    const dist=editDistance(tc, catalogNorm(a.key));
+    const an=catalogNorm(a.key);
+    const dist=editDistance(tc, an);
     if(!best||dist<best.dist) best={entry:e, disp:a.disp, dist};
+    if(dist<=fuzzyLimit(tc,an) && (!okBest||dist<okBest.dist)) okBest={entry:e, disp:a.disp, dist};
   }
-  if(best && best.dist<=FUZZY_MAX)
-    return {entry:best.entry, fuzzy:true, suggestion:best.disp, distance:best.dist};
+  if(okBest)
+    return {entry:okBest.entry, fuzzy:true, suggestion:okBest.disp, distance:okBest.dist};
   return {entry:null, suggestion:best&&best.dist<=6?best.disp:null, distance:best?best.dist:null};
+}
+// Exact-only built-in catalog match: no edit-distance fallback. Used first by
+// resolveCatalogType so a typo-tolerant guess can never outrank a real name.
+function matchCatalogExact(type){
+  const t=norm(type); if(!t) return null;
+  for(const e of EFF) if(e._aliases.some(a=>aliasExactMatch(type,a))) return e;
+  if(isNpkGradeName(type)){
+    const tNpk=norm(String(type).replace(/[-_\/]+/g,' '));
+    for(const e of EFF) if(e._aliases.some(a=>norm(String(a.key).replace(/[-_\/]+/g,' '))===tNpk)) return e;
+  }
+  return null;
 }
 // Hyphens/underscores count as spaces so "Best-K" and "Best K" resolve together.
 // Do NOT strip a trailing number from NPK grades ("11 37 0" must stay intact);
@@ -4277,17 +4301,55 @@ function catalogRecord(key){
 // One lookup for macro + micro + heavy. A long instrument label that continues
 // past a catalog name ("Evergreen Org from NaNO3") must load ALL of that type's
 // tables, not only the micro store that happened to fuzzy-match.
-function resolveCatalogType(type){
+function resolveCatalogType(type, opts){
+  const explicit=!!(opts&&opts.explicit);   // user picked this type by hand -- never guess
   const empty={key:null, disp:type||'', entry:null, custom:null, metals:null,
     fuzzy:false, prefix:false, suggestion:null, distance:null};
   if(!type) return empty;
-  const mc=matchCatalogLoose(type);
-  if(mc.entry){
-    const key=mc.entry._aliases[0].key;
-    const rec=catalogRecord(key);
-    return {key, disp:mc.entry.names, entry:rec.entry, custom:rec.custom, metals:rec.metals,
-      fuzzy:!!mc.fuzzy, prefix:false, suggestion:mc.suggestion||null, distance:mc.distance||null};
+
+  // 1) EXACT built-in catalog name.
+  const ex=matchCatalogExact(type);
+  if(ex){
+    const key=ex._aliases[0].key, rec=catalogRecord(key);
+    return {key, disp:ex.names, entry:rec.entry, custom:rec.custom, metals:rec.metals,
+      fuzzy:false, prefix:false, suggestion:null, distance:null};
   }
+
+  // 2) EXACT user-defined type (custom micro specs / per-type heavy metals).
+  //    This MUST run before any fuzzy pass. A user type that is not in the
+  //    built-in list ("Base H") would otherwise be captured by the nearest
+  //    built-in name ("Best-K") and load that product's claims instead.
+  const exC=exactStoreMatch(loadCustom(), type);
+  const exM=exactStoreMatch(loadTypeMetals(), type);
+  if(exC||exM){
+    const key=(exC&&exC.key)||(exM&&exM.key);
+    const rec=catalogRecord(key);
+    const disp=(exC&&exC.rec.disp)||(exM&&exM.rec.disp)||(rec.entry&&rec.entry.names)||type;
+    return {key, disp, entry:rec.entry,
+      custom:(exC&&exC.rec)||rec.custom||null, metals:(exM&&exM.rec)||rec.metals||null,
+      fuzzy:false, prefix:false, suggestion:null, distance:null};
+  }
+
+  // 3) Loose-but-still-exact variants (hyphen/underscore spacing, copy suffixes).
+  const cn=catalogNorm(type), tn=trackerNorm(type);
+  for(const v of [cn, tn]){
+    if(!v || v===norm(type)) continue;
+    const e2=matchCatalogExact(v);
+    if(e2){
+      const key=e2._aliases[0].key, rec=catalogRecord(key);
+      return {key, disp:e2.names, entry:rec.entry, custom:rec.custom, metals:rec.metals,
+        fuzzy:false, prefix:false, suggestion:null, distance:null};
+    }
+    const c2=exactStoreMatch(loadCustom(), v), m2=exactStoreMatch(loadTypeMetals(), v);
+    if(c2||m2){
+      const key=(c2&&c2.key)||(m2&&m2.key), rec=catalogRecord(key);
+      const disp=(c2&&c2.rec.disp)||(m2&&m2.rec.disp)||(rec.entry&&rec.entry.names)||type;
+      return {key, disp, entry:rec.entry, custom:(c2&&c2.rec)||rec.custom||null, metals:(m2&&m2.rec)||rec.metals||null,
+        fuzzy:false, prefix:false, suggestion:null, distance:null};
+    }
+  }
+
+  // 4) Label that CONTINUES past a catalog name ("Evergreen Org from NaNO3").
   const prefix=catalogKeyByPrefix(type);
   if(prefix){
     const rec=catalogRecord(prefix);
@@ -4295,8 +4357,23 @@ function resolveCatalogType(type){
     return {key:prefix, disp, entry:rec.entry, custom:rec.custom, metals:rec.metals,
       fuzzy:true, prefix:true, suggestion:String(disp).split('/')[0].trim(), distance:null};
   }
-  const cs=bestStoreMatch(loadCustom(), catalogNorm(type));
-  const tm=bestStoreMatch(loadTypeMetals(), catalogNorm(type));
+
+  // A hand-picked type is taken literally. If it has no claims defined, say so
+  // instead of silently substituting a different product's spec sheet.
+  if(explicit) return {...empty, disp:type};
+
+  // 5) Fuzzy built-in catalog (typo tolerance, length-scaled).
+  const mc=matchCatalogLoose(type);
+  if(mc.entry){
+    const key=mc.entry._aliases[0].key;
+    const rec=catalogRecord(key);
+    return {key, disp:mc.entry.names, entry:rec.entry, custom:rec.custom, metals:rec.metals,
+      fuzzy:!!mc.fuzzy, prefix:false, suggestion:mc.suggestion||null, distance:mc.distance||null};
+  }
+
+  // 6) Fuzzy user stores.
+  const cs=bestStoreMatch(loadCustom(), cn);
+  const tm=bestStoreMatch(loadTypeMetals(), cn);
   if(cs||tm){
     const disp=(cs&&cs.disp)||(tm&&tm.disp)||type;
     const key=norm(String(disp).split('/')[0]);
@@ -4304,7 +4381,7 @@ function resolveCatalogType(type){
     return {key, disp, entry:rec.entry, custom:rec.custom||cs, metals:rec.metals||tm,
       fuzzy:true, prefix:false, suggestion:String(disp).split('/')[0].trim(), distance:null};
   }
-  return empty;
+  return {...empty, suggestion:(matchCatalog(type).suggestion)||null};
 }
 function catalogKeyForType(type){
   const r=resolveCatalogType(type);
@@ -4598,11 +4675,27 @@ function bestStoreMatch(store,t){
     for(const a of aliases){
       const vAlias=typeVariantToken(a);
       if(vType!==vAlias && (vType||vAlias)) continue;
-      const d=editDistance(tc, catalogNorm(a));
-      if(!best||d<best.d) best={r,d};
+      const an=catalogNorm(a);
+      const d=editDistance(tc, an);
+      if(d<=fuzzyLimit(tc,an) && (!best||d<best.d)) best={r,d};
     }
   }
-  return (best && best.d<=FUZZY_MAX) ? best.r : null;
+  return best ? best.r : null;
+}
+// Exact-only lookup in a user store (custom micro specs / per-type heavy metals).
+// Returns {key, rec} so the caller keeps the store's OWN key -- critical, because
+// a user type like "Base H" has no built-in entry and must not borrow one.
+function exactStoreMatch(store,t){
+  if(!t) return null;
+  const tn=norm(t), tc=catalogNorm(t);
+  const tNpk=isNpkGradeName(t) ? norm(String(t).replace(/[-_\/]+/g,' ')) : null;
+  for(const k in store){
+    const r=store[k];
+    const aliases=(r.aliases&&r.aliases.length?r.aliases:[k]).concat(r.disp?String(r.disp).split('/'):[]);
+    if(aliases.some(a=>{ const an=norm(a); return an===tn||an===tc||catalogNorm(a)===tc; })) return {key:k, rec:r};
+    if(tNpk && aliases.some(a=>norm(String(a).replace(/[-_\/]+/g,' '))===tNpk)) return {key:k, rec:r};
+  }
+  return null;
 }
 function customSpecsFor(type){
   const r=bestStoreMatch(loadCustom(), catalogNorm(type));
@@ -4613,7 +4706,7 @@ function customSpecsFor(type){
 function loadTypeMetals(){ try{return JSON.parse(localStorage.getItem(HMETAL_KEY))||{};}catch(e){return {};} }
 function saveTypeMetals(o){ localStorage.setItem(HMETAL_KEY, JSON.stringify(o)); scheduleAutoBackup(); }
 function typeMetalsFor(type){
-  const t=norm(type); if(!t) return null;
+  const t=catalogNorm(type); if(!t) return null;
   const r=bestStoreMatch(loadTypeMetals(), t);
   return r ? (r.metals||[]) : null;
 }
@@ -4626,8 +4719,9 @@ function buildSample(s,elemCols,mode){
   const toks=s.label.trim().split(/\s+/).filter(Boolean);
   const batch=toks.filter(isBatchToken).join(' ');
   const displayType=sampleDisplayType({label:s.label});
-  const catalogType=TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label] : displayType;
-  const resolved=resolveCatalogType(catalogType);
+  const pickedByHand=TYPE_OVERRIDES[s.label]!==undefined;
+  const catalogType=pickedByHand ? TYPE_OVERRIDES[s.label] : displayType;
+  const resolved=resolveCatalogType(catalogType, {explicit:pickedByHand});
   const type=displayType;   // shown on report — always the instrument label text
 
   const entry=resolved.entry;
@@ -6041,19 +6135,25 @@ function trkElement(a){
 // Sample types resolve to the catalog's canonical name so "nutrazen" merges with "Nutrozen".
 function trkType(t){ return String(t||'').trim().replace(/\S+/g,w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()); }
 function trkDisplayName(type){
+  // Exact names win over any typo guess, in the built-in catalog AND in the
+  // user's own types -- otherwise "Base H" charts under the "Best-K" tab.
+  const exact=matchCatalogExact(type);
+  if(exact) return trkType(exact._aliases[0].disp);
+  const exC=exactStoreMatch(loadCustom(), type)||exactStoreMatch(loadTypeMetals(), type);
+  if(exC) return trkType(exC.rec.disp||exC.key);
   const mc=matchCatalogLoose(type);
   if(mc.entry) return trkType(mc.entry._aliases[0].disp);
   const t=trackerNorm(type);
   for(const k in loadCustom()){
     const r=loadCustom()[k];
     const aliases=(r.aliases&&r.aliases.length)?r.aliases:[k];
-    if(aliases.some(a=>trackerNorm(a)===t||editDistance(trackerNorm(a),t)<=FUZZY_MAX))
+    if(aliases.some(a=>{const an=trackerNorm(a); return an===t||editDistance(an,t)<=fuzzyLimit(an,t);}))
       return trkType(r.disp||k);
   }
   for(const k in loadTypeMetals()){
     const r=loadTypeMetals()[k];
     const aliases=(r.aliases&&r.aliases.length)?r.aliases:[k];
-    if(aliases.some(a=>trackerNorm(a)===t||editDistance(trackerNorm(a),t)<=FUZZY_MAX))
+    if(aliases.some(a=>{const an=trackerNorm(a); return an===t||editDistance(an,t)<=fuzzyLimit(an,t);}))
       return trkType(r.disp||k);
   }
   return trkType(type);
@@ -6101,8 +6201,9 @@ function findSimilarTrackerTabs(type, tabs, key, canonical){
   const out=[];
   tabs.forEach(t=>{
     if(t.key===key||seen.has(t.sheet.toLowerCase())) return;
-    const d=editDistance(trackerNorm(t.sheet), nc);
-    if(d>0&&d<=FUZZY_MAX&&isDistinctProductVariant(type,t.sheet)){
+    const tn=trackerNorm(t.sheet);
+    const d=editDistance(tn, nc);
+    if(d>0&&d<=fuzzyLimit(tn,nc)&&isDistinctProductVariant(type,t.sheet)){
       seen.add(t.sheet.toLowerCase());
       out.push(t.sheet);
     }
