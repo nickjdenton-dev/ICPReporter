@@ -2747,6 +2747,12 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       <button class="act sec" onclick="noticeReview()">No — review data</button>
     </span>
   </div>
+  <div id="analyteNotice" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid #b8860b;
+       background:#fdf6e3;color:#7a5c0b;border-radius:6px;font-size:13px;align-items:center;gap:10px;flex-wrap:wrap">
+    <span id="analyteNoticeText" style="font-weight:bold"></span>
+    <span id="analyteNoticeActions" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap"></span>
+    <button class="act sec" onclick="closeAnalyteNotice()">Dismiss</button>
+  </div>
   <div id="finalizeBar" style="display:none;margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
     <button id="finalizeBtn" class="act" onclick="toggleFinalize()" disabled>Lock &amp; Finalize Reports</button>
     <span id="finalizeHint" style="font-size:12px;color:#888"></span>
@@ -3144,7 +3150,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.15';   // bump on each release
+const APP_VERSION='v5.18.16';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -6416,6 +6422,10 @@ async function detectNewAnalytesForCommit(doc, picked, tabMap, colFor){
     message:'Committing will add new chart(s) on "'+p.tab+'" for: '+[...p.analytes].join(', ')+'.'
   }));
 }
+/* New analytes on an EXISTING type used to open a blocking radio dialog. It now
+   just builds the chart and reports it afterwards -- the analyst can still split
+   that product onto its own tab from the notice. */
+var PENDING_ANALYTE_NOTICE=[];
 async function resolveTrackerTabsForCommit(doc,picked,colFor){
   const rows=doc.dataRows();
   const types=new Map();
@@ -6434,12 +6444,34 @@ async function resolveTrackerTabsForCommit(doc,picked,colFor){
     resolved=await showTrackerTabResolveModal(issues,partial,rows,colFor);
     if(!resolved) return null;
   }
-  const analyteIssues=await detectNewAnalytesForCommit(doc,picked,resolved,colFor);
-  if(analyteIssues.length){
-    resolved=await showTrackerTabResolveModal(analyteIssues,resolved,rows,colFor);
-    if(!resolved) return null;
-  }
+  // Detect, but do not block: the default answer was always "add the chart".
+  PENDING_ANALYTE_NOTICE=await detectNewAnalytesForCommit(doc,picked,resolved,colFor);
   return resolved;
+}
+function closeAnalyteNotice(){ const n=document.getElementById('analyteNotice'); if(n) n.style.display='none'; }
+function showNewAnalyteNotice(){
+  const n=document.getElementById('analyteNotice'); if(!n) return;
+  const list=PENDING_ANALYTE_NOTICE||[];
+  if(!list.length){ n.style.display='none'; return; }
+  document.getElementById('analyteNoticeText').textContent=list.map(p=>{
+    const many=p.analytes.length>1;
+    return '\uD83C\uDD95 New analyte'+(many?'s':'')+' '+p.analytes.join(', ')+' detected for "'
+      +p.canonical+'" \u2014 chart'+(many?'s':'')+' built on "'+p.tab+'".';
+  }).join('   ');
+  // index-based: a type name can contain quotes, so never interpolate it into onclick
+  document.getElementById('analyteNoticeActions').innerHTML=list.map((p,i)=>
+    '<button type="button" class="act sec lab-sm" onclick="splitTypeToOwnTab('+i+')">'
+    +'Give \u201C'+String(p.canonical).replace(/</g,'&lt;')+'\u201D its own chart tab</button>').join('');
+  n.style.display='flex';
+}
+function splitTypeToOwnTab(i){
+  const p=(PENDING_ANALYTE_NOTICE||[])[i]; if(!p) return;
+  TRK_TAB_PICK[p.typeKey]=p.canonical; saveTrkTabPick(TRK_TAB_PICK);
+  addLog('TRACKER','"'+p.canonical+'" will chart on its own tab from the next commit (was sharing "'+p.tab+'")');
+  const m=document.getElementById('trkMsg');
+  if(m){ m.style.color='#0f4c81';
+    m.textContent='"'+p.canonical+'" will get its own chart tab \u2014 commit again to build it.'; }
+  closeAnalyteNotice();
 }
 function normalizeTrackerElements(doc, colFor){
   if(!colFor||colFor.Element===undefined||colFor.SampleType===undefined) return 0;
@@ -7040,6 +7072,7 @@ async function commitToTracker(){
     // here on is an in-place edit of a real workbook
     if(!(await TRACKER_HANDLE.getFile()).size) await createTrackerWorkbook(TRACKER_HANDLE,TRK_HEADERS);
     let added=0, updated=0, done=false, retries=0, charted=[], extended=[];
+    PENDING_ANALYTE_NOTICE=[];
     for(let attempt=0; attempt<5 && !done; attempt++){
       const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
         ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
@@ -7100,6 +7133,7 @@ async function commitToTracker(){
       +' for '+picked.length+' sample(s) to '+TRACKER_HANDLE.name+(retries?' (merged after '+retries+' concurrent edit(s))':'')
       +(charted.length?' — built a new chart tab for '+charted.join(', '):'')
       +(extended.length?' — added charts to '+extended.join(', '):'');
+    showNewAnalyteNotice();
     addLog('TRACKER','Committed '+picked.length+' sample(s) ('+added+' new, '+updated+' updated) to "'+TRACKER_HANDLE.name+'" by '+userFullName(CURRENT_USER),
       {samples:picked.map(s=>s.label), rows:added+updated, added:added, updated:updated, file:TRACKER_HANDLE.name, mergeRetries:retries});
   }catch(e){
@@ -7709,7 +7743,7 @@ function specRowHTML(sp){
     <td><select class="sConv" style="width:100%;min-width:130px" ${isHeavy?'disabled':''}>${conv}</select></td>
     <td><input class="sFactor" type="number" step="any" placeholder="×" value="${isCustom&&sp.factor!=null?sp.factor:''}" style="width:64px;display:${isCustom&&!isHeavy?'':'none'}"></td>
     <td><input class="sMol" type="text" placeholder="form" value="${molVal.replace(/"/g,'&quot;')}" ${molRO?'readonly':''} style="width:88px;display:${converted?'':'none'};${molRO?'background:#eef2f6':''}"></td>
-    <td><select class="sTable" style="width:100%"><option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option><option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option><option value="heavy" ${sp.table==='heavy'?'selected':''}>Heavy</option></select></td>
+    <td><select class="sTable" style="width:100%"><option value="macro" ${sp.table==='macro'?'selected':''}>Macro</option><option value="micro" ${(!sp.table||sp.table==='micro')?'selected':''}>Micro</option><option value="heavy" ${sp.table==='heavy'?'selected':''}>Qualification</option></select></td>
     <td><select class="sWl" style="width:100%;min-width:110px">${wlOptionsHTML(sp.el||choices[0], sp.wl)}</select></td>
     <td><button type="button" class="icobtn danger" onclick="this.closest('tr').remove()" title="Remove row" aria-label="Remove">${ICO_TRASH}</button></td>
   </tr>`;
@@ -7732,7 +7766,19 @@ function renderAddForm(){
   const existing=allSampleTypes().map(t=>t.disp);
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
   const specHTML=(editing?ec.specs:[null]).map(sp=>specRowHTML(sp)).join('');
-  const note='Assign each analyte to Macro, Micro, or Heavy Metal. Heavy-metal rows use the limit column. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
+  const note='Assign each analyte to Macro, Micro, or Qualification. Qualification rows use the limit column and report a yes/no call. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
+  // Which of this type's tables feed QC trend charts. Qualification is a yes/no
+  // call against a limit, so it has no trend to plot and defaults OFF.
+  const trk = editing ? qcTrackFor(ec.name) : {...QC_TRACK_DEFAULT};
+  const trkChk=(k,label)=>`<label class="lab-chk" style="margin-right:16px">`
+    +`<input type="checkbox" id="qcTrk_${k}" ${trk[k]?'checked':''}> ${label}</label>`;
+  const trkHTML=`<div class="lab-field" style="margin-bottom:10px">
+      <label>QC tracking — chart these analytes in the tracker</label>
+      <div style="font-size:12px;margin-top:4px">
+        ${trkChk('macro','Macro')}${trkChk('micro','Micro')}${trkChk('qual','Qualification')}
+      </div>
+      <div class="lab-note" style="margin-top:4px">Unticked tables still commit their rows to the tracker — they are simply never turned into a chart.</div>
+    </div>`;
 
   document.getElementById('addTitle').textContent = editing
     ? `Editing: ${ec.name}` : 'Add new sample type';
@@ -7750,6 +7796,7 @@ function renderAddForm(){
       <label>Existing type</label>
       <select id="existSel" style="width:100%">${opts}</select>
     </div>
+    ${trkHTML}
     <div class="lab-note" style="margin-bottom:8px">${note}</div>
     <div style="overflow:auto;border:1px solid #c2c8cf;border-radius:2px">
       <table class="lab-table" style="margin:0">
@@ -7882,6 +7929,14 @@ function _saveSpec(){
     }
   }
   saveEdits(edits); saveCustom(store); saveTypeMetals(tm);
+
+  // QC tracking flags travel with the type, and follow it across a rename.
+  const qc=loadQcTrack();
+  if(editing && EDIT_CONTEXT && EDIT_CONTEXT.key!==key) delete qc[EDIT_CONTEXT.key];
+  const chk=id=>{ const el=document.getElementById(id); return el?!!el.checked:undefined; };
+  const flags={macro:chk('qcTrk_macro'), micro:chk('qcTrk_micro'), qual:chk('qcTrk_qual')};
+  if(flags.macro!==undefined) qc[trackerCatalogKey(dispName.split('/')[0])]=flags;
+  saveQcTrack(qc);
 
   addLog('CATALOG',`${editing?'Edited':'Added'} sample type "${dispName}" — ${macroSpecs.length} macro, ${microSpecs.length} micro, ${metalSpecs.length} heavy-metal`,
     {names:dispName, macro:macroSpecs, micro:microSpecs, metals:metalSpecs});
