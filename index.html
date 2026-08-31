@@ -2478,7 +2478,18 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .report-wrap.report-flash{animation:repFlash .7s ease 3}
   .report-wrap.report-jump-target{outline:3px solid #0f4c81;outline-offset:4px}
   @keyframes repFlash{50%{background:#fff8e1}}
-  .rep-err-badge{cursor:pointer;font-size:14px;font-weight:bold;margin-left:5px}
+  .rep-err-badge{cursor:pointer;font-size:15px;margin-left:4px;user-select:none}
+  .rep-type-warn{
+    display:inline-flex;align-items:center;justify-content:center;
+    margin-left:8px;width:24px;height:24px;padding:0;vertical-align:middle;
+    border:1px solid #e0c070;background:#fff3cd;border-radius:3px;
+    cursor:pointer;font-size:14px;line-height:1;position:relative;z-index:6;
+    pointer-events:auto;-webkit-user-select:none;user-select:none
+  }
+  .rep-type-warn:hover{background:#ffe8a3;border-color:#c9a227}
+  .rep-type-warn.hard{border-color:#e0a0a0;background:#fdecea}
+  .rep-type-warn.hard:hover{background:#f8d4d0;border-color:#c0392b}
+  #reports.finalized .rep-type-warn{pointer-events:auto}
   /* icon-only buttons (edit / delete) with hover tooltips */
   .icobtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
     margin:0 2px;padding:0;border:1px solid #c3ccd5;border-radius:4px;background:#fff;
@@ -3124,7 +3135,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.7';   // bump on each release
+const APP_VERSION='v5.18.8';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4736,7 +4747,7 @@ function showSampleErrorModal(s){
   document.getElementById('sampleErrTitle').textContent=s.label;
   document.getElementById('sampleErrBody').innerHTML=`
     <div style="border:1px solid ${col.b};background:${col.bg};color:${col.t};padding:12px 14px;border-radius:6px;margin-bottom:14px;font-size:13px;line-height:1.45">
-      ${col.icon} <b>${s.error.code}</b> — ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
+      ${col.icon} ${s.error.msg}${!s.error.soft?' Defaulted to P₂O₅/K₂O only; verify before issuing.':''}
     </div>
     ${buildSampleErrControls(s)}`;
   document.getElementById('sampleErrModal').classList.add('open');
@@ -4765,15 +4776,20 @@ function scrollToReport(label, opts){
 function openSampleErrorByIndex(i){
   const s=SAMPLES[i];
   if(!s||!s.error) return;
-  scrollToReportIndex(i, {keepModal:true});
-  setTimeout(()=>showSampleErrorModal(s), 450);
+  showSampleErrorModal(s);
 }
 function openSampleError(label){
-  const i=sampleIndexForLabel(label);
-  const s=i>=0?SAMPLES[i]:null;
+  openSampleErrorByIndex(sampleIndexForLabel(label));
+}
+function openSampleErrorFromReport(label,ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  openSampleError(label);
+}
+function openSampleErrorFromRaw(i){
+  const s=SAMPLES[i];
   if(!s||!s.error) return;
   scrollToReportIndex(i, {keepModal:true});
-  setTimeout(()=>showSampleErrorModal(s), 450);
+  showSampleErrorModal(s);
 }
 function closeSampleError(){ document.getElementById('sampleErrModal').classList.remove('open'); }
 function revealPicker(btn){
@@ -4875,7 +4891,14 @@ function reportHTML(s,idx){
   const dDisp = s.reportDate || (uiDate?new Date(uiDate+'T00:00').toLocaleDateString('en-US'):'');
   const ndSpan='<span style="'+S.nd+'">Non-Detect</span>';
   const st=sampleTableVis(s);   // per-report table visibility
-  const errBadge=s.error?`<span class="rep-err-badge no-export" contenteditable="false" title="${String(s.error.msg).replace(/"/g,'&quot;')}" onclick="openSampleError(${JSON.stringify(s.label)})" style="color:${s.error.soft?'#b8860b':'#c0392b'}">${s.error.soft?'⚠️':'⛔'}</span>`:'';
+  const errBadge=s.error
+    ? `<button type="button" class="rep-type-warn no-export${s.error.soft?'':' hard'}" contenteditable="false" title="Click to review sample type"
+         onmousedown="event.preventDefault();event.stopPropagation()"
+         onclick="openSampleErrorFromReport(${JSON.stringify(s.label)},event)">${s.error.soft?'⚠️':'⛔'}</button>`
+    : '';
+  const typeCellStyle=s.error
+    ? S.td+(s.error.soft?';background:#fff8e1':';background:#fdecea')
+    : S.td;
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
   const naSpan='<span style="color:#888;font-style:italic">N/A</span>';
@@ -4940,7 +4963,7 @@ function reportHTML(s,idx){
 
     <table style="${S.table}">
       <tr><th width="50%" style="${S.th}">${te('detailsHdr')}</th><th width="50%" style="${S.th}">${te('infoHdr')}</th></tr>
-      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td style="${S.td}">${te('lblSampleType')} ${s.type||''}${errBadge}</td></tr>
+      <tr><td style="${S.td}">${te('lblReportDate')} ${dDisp}</td><td style="${typeCellStyle}">${te('lblSampleType')} ${s.type||''}${errBadge}</td></tr>
       <tr><td style="${S.td}">${te('lblAnalyst')} ${analyst}</td><td style="${S.td}">${te('lblBatch')} ${s.batch||''}</td></tr>
     </table>
 
@@ -5010,11 +5033,11 @@ function rawPreviewHTML(){
     let trAttr='';
     if(err){
       st+=(!err.soft?';background:#fdecea':';background:#fff8e1');
-      trAttr=idx!=null?` class="raw-err-row" onclick="openSampleErrorByIndex(${idx})" title="Click to jump to this sample's report and fix"`:'';
+      trAttr=idx!=null?` class="raw-err-row" onclick="openSampleErrorFromRaw(${idx})" title="Click to open the sample-type review on this report"`:'';
     }
     return `<tr${trAttr}>`+r.map(c=>`<td style="${st}">${c==null?'':String(c)}</td>`).join('')+'</tr>';
   }).join('');
-  const hint=bad.length?`<div class="raw-err-hint">${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention — click a highlighted row to jump to that report and fix.</div>`:'';
+  const hint=bad.length?`<div class="raw-err-hint">${hard?'⛔':'⚠️'} ${bad.length} sample(s) need attention — click the warning on the report's Sample Type cell, or a highlighted row here.</div>`:'';
   return `<div class="raw-preview" style="margin-top:10px">
      <div style="color:#9aa6ad;font-size:11px;letter-spacing:.3px;text-transform:uppercase;margin-bottom:1px">Source instrument: Agilent ICP-OES 5800</div>
      <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
@@ -5218,7 +5241,7 @@ function render(opts){
     <div class="report-wrap${s.error?(s.error.soft?' has-err-soft':' has-err-hard'):''}" id="reportWrap${i}">
       <div class="rep-tools">
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
-        ${s.error?`<span class="no-export" style="color:${s.error.soft?'#b8860b':'#c0392b'};font-weight:bold;cursor:pointer" onclick="openSampleError(${JSON.stringify(s.label)})" title="Click to fix">${s.error.soft?'⚠️':'⛔'} ${s.error.code}</span>`:''}
+        ${s.error?`<button type="button" class="rep-type-warn no-export${s.error.soft?'':' hard'}" title="Click to review sample type" onclick="openSampleErrorFromReport(${JSON.stringify(s.label)},event)">${s.error.soft?'⚠️':'⛔'}</button>`:''}
         <span style="position:relative;display:inline-block">
           <button onclick="toggleRepDl(${i},event)">Download ▾</button>
           <div id="repDl${i}" style="display:none;position:absolute;z-index:60;top:100%;left:0;margin-top:2px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);min-width:120px;overflow:hidden">
@@ -5358,6 +5381,26 @@ function setReportWl(i,tbl,el,val){
   delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
   patchReportAfterRecompute(i, tbl, el);
 }
+document.addEventListener('mousedown',e=>{
+  const btn=e.target.closest&&e.target.closest('.rep-type-warn');
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+document.addEventListener('click',e=>{
+  const btn=e.target.closest&&e.target.closest('.rep-type-warn');
+  if(!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const wrap=btn.closest('.report-wrap');
+  if(wrap&&wrap.id){
+    const i=+wrap.id.replace('reportWrap','');
+    if(isFinite(i)) openSampleErrorByIndex(i);
+    return;
+  }
+  const label=btn.getAttribute('data-label');
+  if(label) openSampleError(label);
+}, true);
 document.addEventListener('click',e=>{
   if(e.target.classList&&e.target.classList.contains('wlcell')){ e.stopPropagation(); openWlMenu(e.target); }
   else if(!e.target.closest||!e.target.closest('#wlMenu')) closeWlMenu();
@@ -6455,7 +6498,7 @@ function renderTrackerList(){
               font-size:13px;${ok?'':'background:#fdecea'}">
        <input type="checkbox" class="trkChk" data-i="${i}" ${ok?'checked':'disabled'}>
        <b style="${ok?'':'color:#a33'}">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</b>
-       <span style="color:${ok?'#888':'#a33'};font-size:12px">${ok?(s.error?'⚠️ '+s.error.code:''):'sample type not confirmed — will not be charted'}</span>
+       <span style="color:${ok?'#888':'#a33'};font-size:12px">${ok?(s.error?'⚠️ needs review':''):'sample type not confirmed — will not be charted'}</span>
      </label>`;}).join('');
   const blocked=SAMPLES.filter(s=>!trackable(s));
   const all=document.getElementById('trkAll'); all.checked=true;

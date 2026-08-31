@@ -1,0 +1,15 @@
+---
+description: Commit and push Spec. Reporter Pro app updates without waiting to be asked.
+alwaysApply: true
+---
+
+# Ship app updates
+
+When a user-facing change in this repo is done (especially `index.html` / `sw.js` version bumps for the PWA at app.specreport.org):
+
+1. Commit the relevant files with a concise message.
+2. Push to `origin` on the current branch immediately.
+3. Do not wait for a second "please push" — Nicholas wants fix-and-push as one step.
+
+Do not commit unrelated untracked files (icons, `jds-genesis-thread/`, secrets).
+Do not force-push. Do not skip hooks.
