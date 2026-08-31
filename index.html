@@ -3150,7 +3150,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.17';   // bump on each release
+const APP_VERSION='v5.18.18';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -6462,17 +6462,24 @@ function showNewAnalyteNotice(){
   // index-based: a type name may contain quotes or angle brackets
   document.getElementById('analyteNoticeActions').innerHTML=list.map((p,i)=>{
     const nm=String(p.canonical).replace(/</g,'&lt;');
-    return '<button type="button" class="act sec lab-sm" onclick="integrateAnalytes('+i+')">'
+    return '<button type="button" class="act sec lab-sm" onclick="integrateAnalytes('+i+')" '
+      +'title="Add the new analyte to this sample type in the catalog">'
       +'Add to \u201C'+nm+'\u201D</button>'
-      +'<button type="button" class="act sec lab-sm" onclick="forkTypeWithAnalytes('+i+')">'
-      +'New sample type from \u201C'+nm+'\u201D</button>';
+      +'<button type="button" class="act sec lab-sm" onclick="forkTypeWithAnalytes('+i+')" '
+      +'title="Duplicate the type into a new one carrying every analyte">'
+      +'New sample type from \u201C'+nm+'\u201D</button>'
+      +'<button type="button" class="act sec lab-sm" onclick="splitTypeToOwnTab('+i+')" '
+      +'title="Keep the catalog as it is; chart this product on its own tracker tab">'
+      +'Own chart tab</button>';
   }).join('');
   n.style.display='flex';
 }
-/* The chart is already built either way. These two decide what the CATALOG
-   says, which is what gives the new analyte a label claim on future reports.
-     integrate -> add the analyte to the existing type
-     fork      -> duplicate the type, carrying every analyte into a new one */
+/* Three independent choices; the analyst picks. The chart is already built.
+     integrate -> CATALOG: add the analyte to the existing sample type
+     fork      -> CATALOG: duplicate the type, carrying every analyte into a new one
+     split     -> TRACKER: leave the catalog alone, chart it on its own tab
+   The catalog decides what claim the analyte reports against; the tab decides
+   where it trends. They are unrelated, so any combination is valid. */
 function _analyteEditorSeed(i){
   const p=(PENDING_ANALYTE_NOTICE||[])[i]; if(!p) return null;
   const base=typeSpecsForEditor(catalogKeyForType(p.canonical));
@@ -6492,6 +6499,15 @@ function integrateAnalytes(i){
       ? 'Set a claim for the new analyte(s), then Save.'
       : 'This type already defines those analytes.';
   });
+}
+function splitTypeToOwnTab(i){
+  const p=(PENDING_ANALYTE_NOTICE||[])[i]; if(!p) return;
+  TRK_TAB_PICK[p.typeKey]=p.canonical; saveTrkTabPick(TRK_TAB_PICK);
+  addLog('TRACKER','"'+p.canonical+'" will chart on its own tab from the next commit (was sharing "'+p.tab+'")');
+  const m=document.getElementById('trkMsg');
+  if(m){ m.style.color='#0f4c81';
+    m.textContent='"'+p.canonical+'" will get its own chart tab \u2014 commit again to build it.'; }
+  closeAnalyteNotice();
 }
 function forkTypeWithAnalytes(i){
   const seed=_analyteEditorSeed(i); if(!seed) return;
