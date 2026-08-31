@@ -2633,7 +2633,10 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .wlcell:hover{background:#e9f1f8;box-shadow:0 0 0 1px #b8c9dc}
   /* Only Lock & Finalize freezes λ. Individual report lock still allows wavelength picks. */
   #reports.finalized .wlcell{
-    cursor:default;border-bottom:0;pointer-events:none;
+    /* Still frozen, but NOT pointer-events:none -- the click must reach JS so we
+       can say WHY it is frozen. A dead cell that swallows clicks silently is how
+       "wavelengths are locked" reads to an analyst as "the app is broken". */
+    cursor:help;border-bottom:0;
   }
   #reports.finalized .wlcell:hover{background:transparent;box-shadow:none}
   #wlMenu{position:absolute;z-index:300;background:#fff;border:1px solid #bbb;border-radius:4px;
@@ -3138,7 +3141,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.13';   // bump on each release
+const APP_VERSION='v5.18.14';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5567,7 +5570,22 @@ function closeWlMenu(){ const m=document.getElementById('wlMenu'); if(m) m.remov
 function openWlMenu(cell){
   // λ stays available during review — even when an individual report is locked.
   // Only Lock & Finalize freezes wavelength picks on every report.
-  if(FINALIZED) return;
+  if(FINALIZED){
+    // Do NOT fail silently. A clean import auto-finalizes (maybeAutoFinalize),
+    // so the very first thing an analyst does after a good run is click a λ cell
+    // and get nothing back. Say why, and offer the one click that fixes it.
+    closeWlMenu();
+    const m=document.createElement('div'); m.id='wlMenu';
+    m.innerHTML='<div style="padding:8px 12px;font-size:12px;color:#444;max-width:240px;line-height:1.4">'+
+      'Wavelengths are frozen because these reports are <b>finalized</b>.</div>'+
+      '<div style="border-top:1px solid #eee;margin:2px 0"></div>'+
+      '<button onclick="closeWlMenu();toggleFinalize();">Unlock all reports to edit \u03bb</button>';
+    document.body.appendChild(m);
+    const fr=cell.getBoundingClientRect();
+    m.style.left=(window.scrollX+fr.left)+'px';
+    m.style.top=(window.scrollY+fr.bottom+2)+'px';
+    return;
+  }
   closeWlMenu();
   const i=+cell.getAttribute('data-i'), tbl=cell.getAttribute('data-tbl'), el=cell.getAttribute('data-el');
   const s=SAMPLES[i]; if(!s) return;
