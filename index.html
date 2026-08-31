@@ -2473,8 +2473,6 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .raw-err-row:hover{outline:2px solid #0f4c81;outline-offset:-2px}
   .raw-err-hint{font-size:12px;color:#555;margin:8px 0 6px;padding:8px 10px;background:#f8f4e8;
     border:1px solid #e8dcc0;border-radius:5px}
-  .report-wrap.has-err-hard{box-shadow:inset 4px 0 0 #c0392b}
-  .report-wrap.has-err-soft{box-shadow:inset 4px 0 0 #b8860b}
   .report-wrap.report-flash{animation:repFlash .7s ease 3}
   .report-wrap.report-jump-target{outline:3px solid #0f4c81;outline-offset:4px}
   @keyframes repFlash{50%{background:#fff8e1}}
@@ -2489,8 +2487,11 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .rep-type-warn:hover{background:#ffe8a3;border-color:#c9a227}
   .rep-type-warn.hard{border-color:#e0a0a0;background:#fdecea}
   .rep-type-warn.hard:hover{background:#f8d4d0;border-color:#c0392b}
-  .rep-type-cell{cursor:pointer}
+  .rep-type-cell{cursor:pointer;background:#fff8e1}
+  .rep-type-cell.hard{background:#fdecea}
   .rep-type-cell:hover{filter:brightness(.97)}
+  .report[contenteditable="true"] .rep-type-cell{cursor:text}
+  .report[contenteditable="true"] .rep-type-cell:hover{filter:none}
   #reports.finalized .rep-type-cell,#reports.finalized .rep-type-warn{pointer-events:auto}
   /* icon-only buttons (edit / delete) with hover tooltips */
   .icobtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
@@ -3137,7 +3138,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.9';   // bump on each release
+const APP_VERSION='v5.18.10';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4799,18 +4800,24 @@ function revealPicker(btn){
   box.querySelectorAll('button').forEach(b=>b.style.display='none');
   const p=box.querySelector('.typePicker'); if(p) p.style.display='block';
 }
+function rerenderResolvedType(label){
+  const i=sampleIndexForLabel(label);
+  const s=i>=0?SAMPLES[i]:null;
+  if(s){ s.error=null; delete REPORT_BODY_CACHE[reportBodyKey(s,i)]; }
+  if(LAST_WB){ reprocessLast(); return; }
+  render({skipRestore: i>=0?[i]:[]});
+}
 function applySuggestion(label,type){
   TYPE_OVERRIDES[label]=type;
   addLog('TYPE_OVERRIDE',`Sample "${label}" confirmed as type "${type}" (suggestion accepted)`);
   closeSampleError();
-  reprocessLast();
+  rerenderResolvedType(label);
 }
 function dismissFuzzy(label){
   DISMISSED_FUZZY.add(label);
-  const s=SAMPLES.find(x=>x.label===label); if(s) s.error=null;
   addLog('TYPE_OVERRIDE',`Fuzzy match accepted (notice dismissed) for "${label}"`);
   closeSampleError();
-  render();
+  rerenderResolvedType(label);
 }
 function chooseType(label,val){
   if(!val) return;
@@ -4821,7 +4828,7 @@ function chooseType(label,val){
   TYPE_OVERRIDES[label]=val.split('/')[0].trim();
   addLog('TYPE_OVERRIDE',`Sample "${label}" manually set to type "${TYPE_OVERRIDES[label]}"`);
   closeSampleError();
-  reprocessLast();
+  rerenderResolvedType(label);
 }
 
 // Individual report lock: unlocks/locks the FULL report body (date, name, values,
@@ -4898,9 +4905,7 @@ function reportHTML(s,idx){
          onmousedown="event.preventDefault();event.stopPropagation()"
          onclick="openSampleErrorFromReport(${JSON.stringify(s.label)},event)">${s.error.soft?'⚠️':'⛔'}</button>`
     : '';
-  const typeCellStyle=s.error
-    ? S.td+(s.error.soft?';background:#fff8e1;cursor:pointer':';background:#fdecea;cursor:pointer')
-    : S.td;
+  const typeCellStyle=S.td;
   const typeCellClass=s.error?` class="rep-type-cell no-export-hit${s.error.soft?'':' hard'}" title="Click to review sample type"`:'';
 
   const cell=(v)=>`<td style="${S.td}">${v}</td>`;
@@ -5057,7 +5062,7 @@ const REPORT_BODY_CACHE={};   // sample label -> {html, editable, dataSig}
 function reportBodyKey(s,i){ return (s&&s.label)||('report-'+(i!=null?i:0)); }
 function reportDataSig(s){
   return JSON.stringify({wl:s.wlOverrides||{}, fld:s.fieldOverrides||{},
-    type:s.type||'', batch:s.batch||''});
+    type:s.type||'', batch:s.batch||'', err:s.error?s.error.code:null});
 }
 function clearReportBodies(){ for(const k in REPORT_BODY_CACHE) delete REPORT_BODY_CACHE[k]; }
 function escReportText(v){
@@ -5105,7 +5110,12 @@ function syncFieldOverridesFromDom(i){
       const v=stripLabelPrefix(plain, typeLbl).replace(/[⛔⚠️].*$/,'').trim();
       // Keep error-code crumbs (e.g. "ERR-…") out of the type string.
       const cleaned=v.replace(/\b(ERR|WARN)-[A-Z0-9-]+\b/g,'').trim();
-      if(cleaned) s.type=cleaned;
+      if(cleaned){
+        const prev=String(s.type||'').trim();
+        s.type=cleaned;
+        if(s.error && cleaned.toLowerCase()!==prev.toLowerCase())
+          acceptTypeFromCellEdit(s,i,cleaned);
+      }
     }else if(batchLbl && plain.toLowerCase().indexOf(String(batchLbl).toLowerCase())===0){
       const v=stripLabelPrefix(plain, batchLbl);
       s.batch=v;
@@ -5149,12 +5159,60 @@ function syncFieldOverridesFromDom(i){
   updateReportToolbarName(i);
 }
 function syncAllFieldOverrides(){ reportEls().forEach((_,i)=>syncFieldOverridesFromDom(i)); }
+function sampleTypeCell(rep){
+  if(!rep) return null;
+  const tagged=rep.querySelector('td.rep-type-cell');
+  if(tagged) return tagged;
+  const typeLbl=te('lblSampleType');
+  if(!typeLbl) return null;
+  const needle=String(typeLbl).toLowerCase();
+  return [...rep.querySelectorAll('td')].find(td=>{
+    const plain=cellPlainText(td);
+    return plain && plain.toLowerCase().indexOf(needle)===0;
+  })||null;
+}
+function stripTypeErrorChrome(root){
+  if(!root) return;
+  const St=styleSet(reportColors());
+  root.querySelectorAll('.rep-type-warn,.rep-err-badge').forEach(n=>n.remove());
+  const cells=new Set(root.querySelectorAll('td.rep-type-cell'));
+  const td=sampleTypeCell(root);
+  if(td) cells.add(td);
+  cells.forEach(cell=>{
+    cell.classList.remove('rep-type-cell','no-export-hit','hard');
+    cell.removeAttribute('title');
+    cell.style.cssText=St.td;
+  });
+}
+function acceptTypeFromCellEdit(s,i,typeName){
+  if(!s) return;
+  s.error=null;
+  DISMISSED_FUZZY.add(s.label);
+  if(typeName) TYPE_OVERRIDES[s.label]=typeName;
+  const wrap=document.getElementById('reportWrap'+i);
+  if(wrap) wrap.querySelectorAll('.rep-tools .rep-type-warn').forEach(n=>n.remove());
+  stripTypeErrorChrome(reportEls()[i]);
+}
+function clearResolvedTypeHighlights(){
+  SAMPLES.forEach((s,i)=>{
+    if(s.error) return;
+    const wrap=document.getElementById('reportWrap'+i);
+    if(wrap){
+      wrap.classList.remove('has-err-soft','has-err-hard');
+      wrap.querySelectorAll('.rep-tools .rep-type-warn').forEach(n=>n.remove());
+    }
+    stripTypeErrorChrome(reportEls()[i]);
+  });
+}
 function captureReportBodies(){
   syncAllFieldOverrides();
   reportEls().forEach((rep,i)=>{
     const s=SAMPLES[i]; if(!s) return;
+    const clone=document.createElement('div');
+    clone.innerHTML=reportExportHTML(rep);
+    if(!s.error) stripTypeErrorChrome(clone);
     REPORT_BODY_CACHE[reportBodyKey(s,i)]={
-      html:reportExportHTML(rep),
+      html:clone.innerHTML,
       editable:rep.getAttribute('contenteditable')==='true',
       dataSig:reportDataSig(s)
     };
@@ -5170,15 +5228,17 @@ function prepareReportsForExport(){
 function applyReportBodies(skipRestore){
   skipRestore=skipRestore||new Set();
   reportEls().forEach((rep,i)=>{
-    if(skipRestore.has(i)) return;
     const s=SAMPLES[i]; if(!s) return;
+    if(skipRestore.has(i) || skipRestore.has(s.label)) return;
     const cached=REPORT_BODY_CACHE[reportBodyKey(s,i)];
     if(!cached||!cached.html) return;
     // Don't restore stale HTML when wavelength or detected overrides changed since capture.
     if(cached.dataSig && cached.dataSig!==reportDataSig(s)) return;
     rep.querySelectorAll(':scope > *:not(.no-export)').forEach(n=>n.remove());
     const tmp=document.createElement('div'); tmp.innerHTML=cached.html;
+    if(!s.error) stripTypeErrorChrome(tmp);
     while(tmp.firstChild) rep.appendChild(tmp.firstChild);
+    if(!s.error) stripTypeErrorChrome(rep);
     rep.setAttribute('contenteditable',cached.editable?'true':'false');
     const btn=rep.querySelector('.lockbtn');
     if(btn){
@@ -5241,7 +5301,7 @@ function render(opts){
     document.getElementById('panelHandle').style.display='none'; clearReportBodies(); renderWarnings(); updateFinalizeBar(); return; }
   document.getElementById('rawPreview').innerHTML=rawPreviewHTML();
   box.innerHTML=SAMPLES.map((s,i)=>`
-    <div class="report-wrap${s.error?(s.error.soft?' has-err-soft':' has-err-hard'):''}" id="reportWrap${i}">
+    <div class="report-wrap" id="reportWrap${i}">
       <div class="rep-tools">
         <span class="name">${(s.batch?s.batch+' ':'')+(s.type||s.label)}</span>
         ${s.error?`<button type="button" class="rep-type-warn no-export${s.error.soft?'':' hard'}" title="Click to review sample type" onclick="openSampleErrorFromReport(${JSON.stringify(s.label)},event)">${s.error.soft?'⚠️':'⛔'}</button>`:''}
@@ -5258,6 +5318,7 @@ function render(opts){
   document.getElementById('toolbar').style.display='flex';
   document.getElementById('panelHandle').style.display='flex';
   if(preserve) applyReportBodies(skipRestore);
+  clearResolvedTypeHighlights();
   renderWarnings();
   maybeAutoFinalize();     // lock once nothing needs attention
   applyFinalizeState();
@@ -5384,14 +5445,25 @@ function setReportWl(i,tbl,el,val){
   delete REPORT_BODY_CACHE[reportBodyKey(s,i)];
   patchReportAfterRecompute(i, tbl, el);
 }
+function typeReviewTarget(e){
+  const t=e.target;
+  if(!t||!t.closest) return null;
+  const warn=t.closest('.rep-type-warn');
+  if(warn) return warn;
+  const cell=t.closest('.rep-type-cell');
+  if(!cell) return null;
+  const rep=cell.closest('#reports .report');
+  // Unlocked reports are being edited — don't steal the click from the caret.
+  if(rep && rep.getAttribute('contenteditable')==='true') return null;
+  return cell;
+}
 document.addEventListener('mousedown',e=>{
-  const hit=e.target.closest&&e.target.closest('.rep-type-warn, .rep-type-cell');
-  if(!hit) return;
+  if(!typeReviewTarget(e)) return;
   e.preventDefault();
   e.stopPropagation();
 }, true);
 document.addEventListener('click',e=>{
-  const hit=e.target.closest&&e.target.closest('.rep-type-warn, .rep-type-cell');
+  const hit=typeReviewTarget(e);
   if(!hit) return;
   e.preventDefault();
   e.stopPropagation();
