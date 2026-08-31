@@ -3138,7 +3138,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.10';   // bump on each release
+const APP_VERSION='v5.18.11';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4392,9 +4392,31 @@ function parseHeader(h){
 let SAMPLES=[];   // parsed sample objects for current file
 let RAW_GRID=[], RAW_HEADERROW=0, RAW_LABEL_COL=-1, RAW_DATE=null;   // raw sheet + batch date for Raw Data doc
 let RAW_BYTES=null, RAW_EXT='.xlsx';   // original imported file bytes + extension (for exact re-export)
-const TYPE_OVERRIDES={};   // raw label -> user-chosen sample type (resolves unknown-type errors)
+const TYPE_OVERRIDES={};   // label -> catalog type for loading claims (display name stays from label)
+const DISPLAY_OVERRIDES={}; // label -> hand-edited Sample Type text on a report
 const DISMISSED_FUZZY=new Set();   // labels whose fuzzy-match notice the user has dismissed
 let PENDING_TYPE_LABEL=null;   // label awaiting a brand-new type added via the modal
+
+function labelDisplayType(label){
+  const toks=String(label||'').trim().split(/\s+/).filter(Boolean);
+  return toks.filter(isTypeToken).join(' ');
+}
+function sampleDisplayType(s){
+  if(!s) return '';
+  if(DISPLAY_OVERRIDES[s.label]!==undefined) return DISPLAY_OVERRIDES[s.label];
+  return labelDisplayType(s.label);
+}
+function sampleCatalogType(s){
+  if(!s) return '';
+  if(TYPE_OVERRIDES[s.label]!==undefined) return TYPE_OVERRIDES[s.label];
+  return sampleDisplayType(s);
+}
+function sampleCatalogPick(s){
+  if(!s) return '';
+  if(TYPE_OVERRIDES[s.label]!==undefined) return TYPE_OVERRIDES[s.label];
+  const r=resolveCatalogType(sampleDisplayType(s));
+  return r.suggestion||sampleDisplayType(s);
+}
 
 function processWorkbook(wb){
   const ws=wb.Sheets[wb.SheetNames[0]];
@@ -4575,13 +4597,10 @@ function buildSample(s,elemCols,mode){
   //      "19700"          -> batch "19700", type ""
   const toks=s.label.trim().split(/\s+/).filter(Boolean);
   const batch=toks.filter(isBatchToken).join(' ');
-  // user override (from the Yes / picker controls) wins over the token-derived type
-  const typeRaw = TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label]
-                                                   : toks.filter(isTypeToken).join(' ');
-  const resolved=resolveCatalogType(typeRaw);
-  const type = (TYPE_OVERRIDES[s.label]!==undefined)
-    ? typeRaw
-    : (resolved.prefix && resolved.disp ? String(resolved.disp).split('/')[0].trim() : typeRaw);
+  const displayType=sampleDisplayType({label:s.label});
+  const catalogType=TYPE_OVERRIDES[s.label]!==undefined ? TYPE_OVERRIDES[s.label] : displayType;
+  const resolved=resolveCatalogType(catalogType);
+  const type=displayType;   // shown on report — always the instrument label text
 
   const entry=resolved.entry;
   const custom=(resolved.custom && resolved.custom.specs) || [];
@@ -4600,13 +4619,13 @@ function buildSample(s,elemCols,mode){
       msg:'No sample-type token found — only a batch number was present. NPK grades like 11-37-0 are valid types; if the label was only digits, add a type word or pick one below.'};
   }else if(!known){
     error={code:'ERR-UNKNOWN-TYPE', suggestion:resolved.suggestion||null,
-      msg:`Sample type "${typeRaw}" is not in the label-claim catalog.`+
+      msg:`Sample type "${displayType}" is not in the label-claim catalog.`+
           (resolved.suggestion?` Did you mean "${resolved.suggestion}"?`:'')};
   }else if((resolved.fuzzy||resolved.prefix) && TYPE_OVERRIDES[s.label]===undefined && !DISMISSED_FUZZY.has(s.label)){
     error={code:'WARN-FUZZY-MATCH', soft:true, suggestion:resolved.suggestion||null,
       msg: resolved.prefix
-        ? `Sample type "${typeRaw}" extends catalog type "${resolved.suggestion}" — using that type's Macro, Micro and Heavy Metal claims. Verify it's correct.`
-        : `Sample type "${typeRaw}" didn't match exactly — auto-matched to "${resolved.suggestion}" `+
+        ? `Sample type "${displayType}" extends catalog type "${resolved.suggestion}" — using that type's Macro, Micro and Heavy Metal claims. Verify it's correct.`
+        : `Sample type "${displayType}" didn't match exactly — auto-matched to "${resolved.suggestion}" `+
           (resolved.distance!=null?`(off by ${resolved.distance} character${resolved.distance>1?'s':''}). `:'')+
           `Verify it's correct.`};
   }
@@ -4809,7 +4828,7 @@ function rerenderResolvedType(label){
 }
 function applySuggestion(label,type){
   TYPE_OVERRIDES[label]=type;
-  addLog('TYPE_OVERRIDE',`Sample "${label}" confirmed as type "${type}" (suggestion accepted)`);
+  addLog('TYPE_OVERRIDE',`Sample "${label}" catalog set to "${type}" (display name unchanged)`);
   closeSampleError();
   rerenderResolvedType(label);
 }
@@ -4823,10 +4842,10 @@ function chooseType(label,val){
   if(!val) return;
   if(val==='__new__'){ PENDING_TYPE_LABEL=label; closeSampleError(); openCatalog(); return; }
   if(val==='__auto__'){ delete TYPE_OVERRIDES[label];
-    addLog('TYPE_OVERRIDE',`Sample "${label}" reverted to the type read from its label`);
+    addLog('TYPE_OVERRIDE',`Sample "${label}" catalog match reset to label text`);
     closeSampleError(); reprocessLast(); return; }
   TYPE_OVERRIDES[label]=val.split('/')[0].trim();
-  addLog('TYPE_OVERRIDE',`Sample "${label}" manually set to type "${TYPE_OVERRIDES[label]}"`);
+  addLog('TYPE_OVERRIDE',`Sample "${label}" catalog set to "${TYPE_OVERRIDES[label]}" (display name unchanged)`);
   closeSampleError();
   rerenderResolvedType(label);
 }
@@ -5113,6 +5132,8 @@ function syncFieldOverridesFromDom(i){
       if(cleaned){
         const prev=String(s.type||'').trim();
         s.type=cleaned;
+        if(cleaned!==labelDisplayType(s.label)) DISPLAY_OVERRIDES[s.label]=cleaned;
+        else delete DISPLAY_OVERRIDES[s.label];
         if(s.error && cleaned.toLowerCase()!==prev.toLowerCase())
           acceptTypeFromCellEdit(s,i,cleaned);
       }
@@ -5188,7 +5209,13 @@ function acceptTypeFromCellEdit(s,i,typeName){
   if(!s) return;
   s.error=null;
   DISMISSED_FUZZY.add(s.label);
-  if(typeName) TYPE_OVERRIDES[s.label]=typeName;
+  if(typeName){
+    DISPLAY_OVERRIDES[s.label]=typeName;
+    s.type=typeName;
+    const r=resolveCatalogType(typeName);
+    if(r.entry||r.custom||r.metals)
+      TYPE_OVERRIDES[s.label]=String(r.suggestion||typeName).split('/')[0].trim();
+  }
   const wrap=document.getElementById('reportWrap'+i);
   if(wrap) wrap.querySelectorAll('.rep-tools .rep-type-warn').forEach(n=>n.remove());
   stripTypeErrorChrome(reportEls()[i]);
@@ -5371,13 +5398,14 @@ function populateReportLayoutModal(i){
   const cb=(k,label)=>`<label class="lab-chk"><input type="checkbox" ${st[k]?'checked':''} onchange="reportTableToggle(${i},'${k}',this.checked)"> ${label}</label>`;
   document.getElementById('reportLayoutTables').innerHTML=
     cb('macro','Macro')+cb('micro','Micro')+cb('heavy','Heavy Metals')+cb('raw','Raw Data Reference');
-  const tOpts=typeOptionsHTML(s.type);
+  const tOpts=typeOptionsHTML(sampleCatalogType(s));
   const exactHit=tOpts.indexOf(' selected')>=0;
-  const curOpt = !s.type ? '<option value="" selected>\u2014 none detected \u2014</option>'
+  const catalogPick=sampleCatalogType(s);
+  const curOpt = !catalogPick ? '<option value="" selected>\u2014 none detected \u2014</option>'
                : (exactHit ? ''
-                    : `<option value="${String(s.type).replace(/"/g,'&quot;')}" selected>${String(s.type).replace(/</g,'&lt;')} (current)</option>`);
+                    : `<option value="${String(catalogPick).replace(/"/g,'&quot;')}" selected>${String(catalogPick).replace(/</g,'&lt;')} (catalog)</option>`);
   const autoOpt = (TYPE_OVERRIDES[s.label]!==undefined)
-    ? '<option value="__auto__">\u21ba Use type from sample label</option>' : '';
+    ? '<option value="__auto__">\u21ba Match catalog from label text</option>' : '';
   document.getElementById('reportLayoutType').innerHTML=
     curOpt+tOpts+'<option value="__new__">\u2795 Add new sample type\u2026</option>'+autoOpt;
 }
@@ -5388,7 +5416,7 @@ function reportLayoutChooseType(val){
   if(!val) return;
   if(val==='__new__'){ closeReportLayout(); PENDING_TYPE_LABEL=s.label; openCatalog(); return; }
   const next=val==='__auto__' ? null : String(val).split('/')[0].trim();
-  const cur=(TYPE_OVERRIDES[s.label]!==undefined?TYPE_OVERRIDES[s.label]:s.type)||'';
+  const cur=TYPE_OVERRIDES[s.label]||'';
   if(next!==null && next.toLowerCase()===String(cur).toLowerCase() && TYPE_OVERRIDES[s.label]!==undefined)
     return;   // already applied
   chooseType(s.label, val);
