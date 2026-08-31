@@ -3138,7 +3138,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.11';   // bump on each release
+const APP_VERSION='v5.18.12';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -4187,10 +4187,24 @@ function isNpkGradeName(s){
   return /^\d+(\.\d+)?(\s+\d+(\.\d+)?){1,3}$/.test(norm(String(s||'').replace(/[-_\/]+/g,' ')));
 }
 
+// Normalize for catalog lookup: hyphens/underscores = spaces ("Fertilex-8" ≡ "Fertilex 8").
+function catalogNorm(s){
+  return norm(String(s).replace(/[-_]+/g,' '));
+}
+function typeVariantToken(s){
+  const m=catalogNorm(s).match(/\s(\d+)$/);
+  return m?m[1]:null;
+}
+function aliasExactMatch(type,a){
+  const tc=catalogNorm(type);
+  return a.key===norm(type) || a.key===tc || catalogNorm(a.disp||a.key)===tc;
+}
+
 // Returns {entry, fuzzy, suggestion, distance}. Tolerates small typos.
 function matchCatalog(type){
   const t=norm(type); if(!t) return {entry:null};
-  for(const e of EFF) if(e._aliases.some(a=>a.key===t)) return {entry:e, fuzzy:false};
+  const tc=catalogNorm(type);
+  for(const e of EFF) if(e._aliases.some(a=>aliasExactMatch(type,a))) return {entry:e, fuzzy:false};
   // NPK grades: treat hyphens/slashes as spaces so "11-37-0" matches "11 37 0"
   const tNpk=isNpkGradeName(type) ? norm(String(type).replace(/[-_\/]+/g,' ')) : null;
   if(tNpk){
@@ -4199,8 +4213,11 @@ function matchCatalog(type){
   }
   // nearest alias by edit distance
   let best=null;
+  const vType=typeVariantToken(type);
   for(const e of EFF) for(const a of e._aliases){
-    const dist=editDistance(t,a.key);
+    const vAlias=typeVariantToken(a.disp||a.key);
+    if(vType!==vAlias && (vType||vAlias)) continue;   // Fertilex-8 must not → Fortex
+    const dist=editDistance(tc, catalogNorm(a.key));
     if(!best||dist<best.dist) best={entry:e, disp:a.disp, dist};
   }
   if(best && best.dist<=FUZZY_MAX)
@@ -4209,17 +4226,21 @@ function matchCatalog(type){
 }
 // Hyphens/underscores count as spaces so "Best-K" and "Best K" resolve together.
 // Do NOT strip a trailing number from NPK grades ("11 37 0" must stay intact);
-// the trailing-digit strip is only for copy suffixes like "Fertilex 2".
+// the trailing-digit strip is only for copy suffixes like "Fertilex 2" — NOT "Fertilex-8".
 function trackerNorm(s){
-  const spaced=String(s).replace(/[-_]+/g,' ');
+  const raw=String(s||'').trim();
+  const spaced=raw.replace(/[-_]+/g,' ');
   if(isNpkGradeName(spaced)) return norm(spaced);
+  if(/[-_]\d/.test(raw)) return catalogNorm(raw);
   return norm(spaced.replace(/\s+\d+$/,''));
 }
 function matchCatalogLoose(type){
   let r=matchCatalog(type);
   if(r.entry) return r;
+  const cn=catalogNorm(type);
+  if(cn!==norm(type)){ r=matchCatalog(cn); if(r.entry) return r; }
   const t=trackerNorm(type);
-  if(t!==norm(type)) r=matchCatalog(t);
+  if(t!==norm(type) && t!==cn){ r=matchCatalog(t); if(r.entry) return r; }
   return r;
 }
 // When a long SampleType string extends a catalog name ("Base H Base Humic" → "Base H").
@@ -4274,8 +4295,8 @@ function resolveCatalogType(type){
     return {key:prefix, disp, entry:rec.entry, custom:rec.custom, metals:rec.metals,
       fuzzy:true, prefix:true, suggestion:String(disp).split('/')[0].trim(), distance:null};
   }
-  const cs=bestStoreMatch(loadCustom(), norm(type));
-  const tm=bestStoreMatch(loadTypeMetals(), norm(type));
+  const cs=bestStoreMatch(loadCustom(), catalogNorm(type));
+  const tm=bestStoreMatch(loadTypeMetals(), catalogNorm(type));
   if(cs||tm){
     const disp=(cs&&cs.disp)||(tm&&tm.disp)||type;
     const key=norm(String(disp).split('/')[0]);
@@ -4563,21 +4584,28 @@ function saveCustom(o){ localStorage.setItem(CUSTOM_KEY, JSON.stringify(o)); sch
 // then nearest alias within the fuzzy tolerance (mirrors matchCatalog for macro).
 function bestStoreMatch(store,t){
   if(!t) return null;
+  const tc=catalogNorm(t);
   const tNpk=isNpkGradeName(t) ? norm(String(t).replace(/[-_\/]+/g,' ')) : null;
+  const vType=typeVariantToken(t);
   for(const k in store){
     const r=store[k]; const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
-    if(aliases.includes(t)) return r;
+    if(aliases.some(a=>a===norm(t)||a===tc||catalogNorm(a)===tc)) return r;
     if(tNpk && aliases.some(a=>norm(String(a).replace(/[-_\/]+/g,' '))===tNpk)) return r;
   }
   let best=null;
   for(const k in store){
     const r=store[k]; const aliases=r.aliases&&r.aliases.length?r.aliases:[k];
-    for(const a of aliases){ const d=editDistance(t,a); if(!best||d<best.d) best={r,d}; }
+    for(const a of aliases){
+      const vAlias=typeVariantToken(a);
+      if(vType!==vAlias && (vType||vAlias)) continue;
+      const d=editDistance(tc, catalogNorm(a));
+      if(!best||d<best.d) best={r,d};
+    }
   }
   return (best && best.d<=FUZZY_MAX) ? best.r : null;
 }
 function customSpecsFor(type){
-  const r=bestStoreMatch(loadCustom(), norm(type));
+  const r=bestStoreMatch(loadCustom(), catalogNorm(type));
   return r ? (r.specs||[]) : [];
 }
 // per-sample-type heavy metals (Heavy Metal table). null = type defines none.
