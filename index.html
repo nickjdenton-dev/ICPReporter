@@ -2605,6 +2605,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .modal-backdrop{position:fixed;inset:0;background:rgba(15,40,65,.28);z-index:200;display:none;
     align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto}
   .modal-backdrop.open{display:flex}
+  /* Don't leave the page scrollbar sitting next to the dialog's. */
+  html:has(.modal-backdrop.open){overflow:hidden}
   .modal-backdrop.modal-centered{align-items:center}
   .modal-backdrop.modal-centered .modal-panel{margin:auto}
   .trk-file-label{cursor:help;border-bottom:1px dotted #8a97a3;font-size:12px}
