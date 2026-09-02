@@ -2502,7 +2502,9 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
     color:#41576e;cursor:pointer;vertical-align:middle}
   .icobtn:hover{background:#eaf1f8;border-color:#0f4c81;color:#0f4c81}
   .icobtn.danger:hover{background:#fdecea;border-color:#c0392b;color:#c0392b}
-  #rawPreview{max-height:34vh;overflow-y:auto}
+  /* Only the grid scrolls — not #rawPreview too, which stacked a second bar on the page. */
+  .raw-preview-scroll{overflow:auto;max-height:34vh;border:1px solid #ddd;border-radius:5px;
+    overscroll-behavior:contain}
   /* ---- classic menu bar ---- */
   :root{--tbh:40px}
   @media (display-mode: window-controls-overlay){ :root{--tbh:env(titlebar-area-height,40px)} }
@@ -2603,6 +2605,8 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .modal-backdrop{position:fixed;inset:0;background:rgba(15,40,65,.28);z-index:200;display:none;
     align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto}
   .modal-backdrop.open{display:flex}
+  /* Don't leave the page scrollbar sitting next to the dialog's. */
+  html:has(.modal-backdrop.open){overflow:hidden}
   .modal-backdrop.modal-centered{align-items:center}
   .modal-backdrop.modal-centered .modal-panel{margin:auto}
   .trk-file-label{cursor:help;border-bottom:1px dotted #8a97a3;font-size:12px}
@@ -3150,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.19';   // bump on each release
+const APP_VERSION='v5.18.20';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5246,7 +5250,7 @@ function rawPreviewHTML(){
      <div style="color:#9aa6ad;font-size:11px;letter-spacing:.3px;text-transform:uppercase;margin-bottom:1px">Source instrument: Agilent ICP-OES 5800</div>
      <div style="font-weight:bold;color:#0f4c81;font-size:14px;margin-bottom:6px">Raw Data — ${rawDataTitle()}</div>
      ${hint}
-     <div style="overflow:auto;max-height:300px;border:1px solid #ddd;border-radius:5px">
+     <div class="raw-preview-scroll">
        <table style="border-collapse:collapse;font-family:Arial,sans-serif">${rows}</table>
      </div>
      <div style="color:#888;font-size:11px;margin-top:5px">Imported data (downloads as ${rawDataTitle()}${RAW_EXT}). Reports below are derived from it; this preview isn't included in exports.</div>
