@@ -263,12 +263,15 @@ function specTable(rows){
 function allResults(){
   const q = $('q').value.trim().toLowerCase();
   const rows = [];
+  let total = 0;
   for (const b of DATA.batches) for (const t of b.tests||[]) {
+    total++;
     const line = [b.lotNo, b.product, t.name, t.result, t.srcFile].join(' ').toLowerCase();
     if (q && !line.includes(q)) continue;
     rows.push({b,t});
   }
-  return `<h1>All results (${rows.length})</h1>
+  const title = q ? rows.length+' matching “'+esc($('q').value.trim())+'” of '+total : String(total);
+  return `<h1>All results (${title})</h1>
     ${rows.length ? `<table><thead><tr><th>Lot</th><th>Product</th><th>Test</th><th>Result</th><th>% of claim</th><th>Source</th></tr></thead><tbody>
       ${rows.map(({b,t}) => `<tr class="${claimClass(t.pctClaim)}">
         <td>${esc(b.lotNo)}</td><td>${esc(b.product)}</td><td>${esc(t.name||'')}</td>
