@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lot Trace — local export viewer</title>
+<style>
+:root{
+  --navy:#0f4c81; --ink:#223447; --muted:#6c7d8e; --line:#d5dee8;
+  --bg:#eef3f8; --paper:#fff; --good:#1b7a3d; --warn:#b36b00; --bad:#b42318;
+  --good-bg:#e8f6ee; --warn-bg:#fff4e0; --bad-bg:#fdecea;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font:14px/1.4 "Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+button,input,select{font:inherit}
+#bar{display:flex;align-items:center;gap:12px;height:44px;padding:0 14px;background:var(--navy);color:#fff;flex-shrink:0}
+#bar b{font-size:16px;letter-spacing:.2px}
+#bar .meta{margin-left:auto;font-size:12px;color:#dce9f5}
+#bar button{background:rgba(255,255,255,.16);color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
+#bar button:hover{background:rgba(255,255,255,.28)}
+#app{display:none;height:calc(100% - 44px);grid-template-columns:320px 1fr;grid-template-rows:auto 1fr}
+#app.on{display:grid}
+#tools{grid-column:1/-1;display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--paper);border-bottom:1px solid var(--line)}
+#tools input{flex:1;max-width:420px;padding:7px 10px;border:1px solid #c3ccd5;border-radius:6px}
+#tools .chip{border:1px solid var(--line);background:#f5f9fd;border-radius:999px;padding:4px 10px;cursor:pointer;color:#334}
+#tools .chip.on{background:#dbe8f5;border-color:var(--navy);color:var(--navy);font-weight:600}
+#list{overflow:auto;background:var(--paper);border-right:1px solid var(--line)}
+.lot{display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid #eef2f6;background:#fff;cursor:pointer}
+.lot:hover{background:#f5f9fd}
+.lot.sel{background:#e7f0f8;box-shadow:inset 3px 0 0 var(--navy)}
+.lot .ln{font-weight:700}
+.lot .sub{font-size:12px;color:var(--muted)}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:#eef2f6;color:#445;margin-left:6px}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.mid{background:var(--warn-bg);color:var(--warn)}
+.pill.lo{background:var(--bad-bg);color:var(--bad)}
+#detail{overflow:auto;padding:18px 22px 40px}
+h1{margin:0 0 4px;font-size:22px}
+h2{margin:22px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--navy)}
+.kv{display:flex;flex-wrap:wrap;gap:6px 18px;color:#445;font-size:13px;margin:8px 0 14px}
+.kv span{color:var(--muted)}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{padding:7px 9px;border-bottom:1px solid #eef2f6;text-align:left;vertical-align:top}
+th{background:#f4f7fb;font-size:12px;color:#4a5d70}
+tr:last-child td{border-bottom:0}
+tr.lo{background:var(--bad-bg)}
+tr.mid{background:var(--warn-bg)}
+tr.ok{background:var(--good-bg)}
+a{color:var(--navy)}
+.empty{color:var(--muted);padding:8px 0}
+#drop{display:flex;align-items:center;justify-content:center;height:calc(100% - 44px);padding:24px}
+#dz{width:min(720px,92vw);min-height:380px;border:2px dashed #a7c0dc;border-radius:18px;background:#f5f9fd;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;cursor:pointer}
+#dz:hover,#dz.over{background:#e7f0f8;border-color:var(--navy)}
+#dz h1{font-size:26px;margin:0 0 8px}
+#dz p{margin:6px 0;color:#4a5d70;max-width:520px}
+#dz .sub{font-size:13px;color:var(--muted)}
+#err{display:none;margin:12px 24px;padding:10px 12px;background:var(--bad-bg);color:var(--bad);border-radius:8px}
+.tabs{display:flex;gap:4px;margin:0 0 12px}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+.tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>Lot Trace</b>
+  <span>local export viewer</span>
+  <span class="meta" id="barMeta"></span>
+  <button type="button" id="openBtn">Open zip…</button>
+</div>
+<div id="err"></div>
+<div id="drop">
+  <div id="dz" tabindex="0" role="button">
+    <h1>Drop lot-trace-export.zip here</h1>
+    <p>That zip is a <b>data export</b>, not a program. This page is the program. Drop the zip (or <code>lot-trace-full-export.json</code>) to browse lots, results, and Drive files on this computer.</p>
+    <p class="sub">Nothing is uploaded. Chrome, Edge, or Safari. Click this box to choose a file.</p>
+  </div>
+</div>
+<div id="app">
+  <div id="tools">
+    <input id="q" placeholder="Search lot, product, test, file…" autocomplete="off">
+    <button class="chip on" data-f="all" type="button">All lots</button>
+    <button class="chip" data-f="results" type="button">Has results</button>
+    <button class="chip" data-f="none" type="button">No results</button>
+  </div>
+  <div id="list"></div>
+  <div id="detail"></div>
+</div>
+<input id="file" type="file" accept=".zip,.json,application/json,application/zip" hidden>
+<script>
+const $ = id => document.getElementById(id);
+let DATA = null, SEL = null, FILTER = 'all', TAB = 'lot';
+
+$('openBtn').onclick = () => $('file').click();
+$('dz').onclick = () => $('file').click();
+$('file').onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); };
+['dragenter','dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); $('dz').classList.add('over'); }));
+['dragleave','drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); $('dz').classList.remove('over'); }));
+document.addEventListener('drop', e => {
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+$('q').addEventListener('input', renderList);
+document.querySelectorAll('#tools .chip').forEach(b => b.onclick = () => {
+  FILTER = b.dataset.f;
+  document.querySelectorAll('#tools .chip').forEach(x => x.classList.toggle('on', x === b));
+  renderList();
+});
+
+function showErr(msg){ const n=$('err'); n.style.display='block'; n.textContent=msg; }
+function hideErr(){ $('err').style.display='none'; }
+
+async function loadFile(file){
+  hideErr();
+  try {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.json')) {
+      DATA = JSON.parse(await file.text());
+    } else {
+      const files = await unzip(await file.arrayBuffer());
+      const jsonName = Object.keys(files).find(n => n.toLowerCase().endsWith('lot-trace-full-export.json'))
+        || Object.keys(files).find(n => n.toLowerCase().endsWith('.json'));
+      if (!jsonName) throw new Error('No lot-trace-full-export.json inside this zip. Extract it and drop that JSON, or open results.csv in Excel.');
+      DATA = JSON.parse(files[jsonName]);
+    }
+    if (!DATA || !Array.isArray(DATA.batches)) throw new Error('This file is not a Lot Trace full export.');
+    DATA.batches.sort((a,b) => String(b.lotNo).localeCompare(String(a.lotNo), undefined, {numeric:true}));
+    DATA.products = DATA.products || [];
+    SEL = DATA.batches[0] ? DATA.batches[0].id : null;
+    $('drop').style.display = 'none';
+    $('app').classList.add('on');
+    const nRes = DATA.batches.reduce((n,b)=>n+(b.tests||[]).length,0);
+    const nMed = DATA.batches.reduce((n,b)=>n+(b.media||[]).length,0);
+    $('barMeta').textContent = (DATA.exportedAt ? new Date(DATA.exportedAt).toLocaleString()+' · ' : '')
+      + DATA.batches.length+' lots · '+nRes+' results · '+nMed+' files · '+(DATA.products.length)+' products';
+    renderList();
+    renderDetail();
+  } catch (err) {
+    showErr(err.message || String(err));
+  }
+}
+
+function hay(b){
+  const bits = [b.lotNo, b.product, b.customerLot, b.stage, b.disposition, ...(b.nameVariants||[])];
+  for (const t of b.tests||[]) bits.push(t.name, t.result, t.srcFile, t.analyst);
+  for (const m of b.media||[]) bits.push(m.name, m.caption, m.url);
+  for (const e of b.events||[]) bits.push(e.action, e.detail, e.who);
+  return bits.join(' ').toLowerCase();
+}
+
+function claimClass(pct){
+  if (pct == null || pct === '') return '';
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return '';
+  if (n < 90) return 'lo';
+  if (n < 95) return 'mid';
+  return 'ok';
+}
+
+function lotScore(b){
+  const pcts = (b.tests||[]).map(t => t.pctClaim).filter(v => v != null && v !== '' && Number.isFinite(Number(v))).map(Number);
+  if (!pcts.length) return '';
+  if (pcts.some(n => n < 90)) return 'lo';
+  if (pcts.some(n => n < 95)) return 'mid';
+  return 'ok';
+}
+
+function filtered(){
+  const q = $('q').value.trim().toLowerCase();
+  return DATA.batches.filter(b => {
+    const n = (b.tests||[]).length;
+    if (FILTER === 'results' && !n) return false;
+    if (FILTER === 'none' && n) return false;
+    if (q && !hay(b).includes(q)) return false;
+    return true;
+  });
+}
+
+function renderList(){
+  const rows = filtered();
+  $('list').innerHTML = rows.map(b => {
+    const n = (b.tests||[]).length;
+    const sc = lotScore(b);
+    const lab = sc === 'lo' ? 'below 90%' : sc === 'mid' ? '90–95%' : sc === 'ok' ? '≥95%' : (n ? n+' tests' : 'no results');
+    return `<button class="lot${b.id===SEL?' sel':''}" data-id="${esc(b.id)}" type="button">
+      <div><span class="ln">${esc(b.lotNo||'—')}</span> <span class="pill ${sc}">${esc(lab)}</span></div>
+      <div class="sub">${esc(b.product||'')} ${b.stage ? '· '+esc(b.stage) : ''}</div>
+    </button>`;
+  }).join('') || `<div class="empty" style="padding:16px">No lots match.</div>`;
+  $('list').querySelectorAll('.lot').forEach(btn => btn.onclick = () => { SEL = btn.dataset.id; renderList(); renderDetail(); });
+}
+
+function productFor(name){
+  const n = (name||'').toLowerCase();
+  return (DATA.products||[]).find(p => (p.name||'').toLowerCase()===n
+    || (p.aliases||[]).some(a => String(a).toLowerCase()===n));
+}
+
+function renderDetail(){
+  const b = DATA.batches.find(x => x.id === SEL);
+  if (!b){ $('detail').innerHTML = '<p class="empty">Select a lot.</p>'; return; }
+  const prod = productFor(b.product);
+  const tests = b.tests||[];
+  const media = b.media||[];
+  const events = (b.events||[]).slice().sort((a,c)=>String(c.at).localeCompare(String(a.at)));
+  $('detail').innerHTML = `
+    <div class="tabs">
+      <button type="button" class="${TAB==='lot'?'on':''}" data-t="lot">This lot</button>
+      <button type="button" class="${TAB==='all'?'on':''}" data-t="all">All results</button>
+      <button type="button" class="${TAB==='prod'?'on':''}" data-t="prod">Products</button>
+    </div>
+    ${TAB==='lot' ? lotView(b, prod, tests, media, events) : TAB==='all' ? allResults() : productsView()}
+  `;
+  $('detail').querySelectorAll('.tabs button').forEach(btn => btn.onclick = () => { TAB = btn.dataset.t; renderDetail(); });
+}
+
+function lotView(b, prod, tests, media, events){
+  return `
+    <h1>${esc(b.product||'Lot')} <span class="muted">#${esc(b.lotNo||'')}</span></h1>
+    <div class="kv">
+      <div><span>Stage</span><br>${esc(b.stage||'—')}</div>
+      <div><span>Disposition</span><br>${esc(b.disposition||'—')}</div>
+      <div><span>Mfg date</span><br>${esc(fmtDate(b.mfgDate))}</div>
+      <div><span>Record</span><br>${esc(b.recordType||'—')}</div>
+      ${b.nameVariants && b.nameVariants.length ? `<div><span>Also known as</span><br>${esc(b.nameVariants.join(', '))}</div>` : ''}
+    </div>
+    <h2>Results (${tests.length})</h2>
+    ${tests.length ? testTable(tests) : '<p class="empty">No tracker results on this lot.</p>'}
+    <h2>Files (${media.length})</h2>
+    ${media.length ? `<table><thead><tr><th>File</th><th>When</th><th>Link</th></tr></thead><tbody>
+      ${media.map(m => `<tr><td>${esc(m.caption||m.name||'')}</td><td>${esc(fmtDate(m.at))}</td>
+        <td>${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">Open in Drive</a>` : '—'}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="empty">No attachments.</p>'}
+    <h2>Timeline (${events.length})</h2>
+    ${events.length ? `<table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th></tr></thead><tbody>
+      ${events.map(e => `<tr><td>${esc(fmtDate(e.at))}</td><td>${esc(e.who||'')}</td><td>${esc(e.action||'')}</td><td>${esc(e.detail||'')}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="empty">No events.</p>'}
+    ${prod && (prod.analytical||[]).length ? `<h2>Catalog specs — ${esc(prod.name)}</h2>${specTable(prod.analytical)}` : ''}
+  `;
+}
+
+function testTable(tests){
+  return `<table><thead><tr><th>Test</th><th>Result</th><th>Claim</th><th>% of claim</th><th>Spec</th><th>Date</th><th>Source</th></tr></thead><tbody>
+    ${tests.map(t => `<tr class="${claimClass(t.pctClaim)}">
+      <td>${esc(t.name||'')}</td>
+      <td>${esc(t.result||'')} ${esc(t.units||'')}</td>
+      <td>${t.labelClaim==null||t.labelClaim===''?'—':esc(t.labelClaim)}</td>
+      <td>${t.pctClaim==null||t.pctClaim===''?'—':esc(t.pctClaim)}</td>
+      <td>${esc(t.specText||'')}</td>
+      <td>${esc(fmtDate(t.at))}</td>
+      <td>${esc(t.srcFile||'')}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+function specTable(rows){
+  return `<table><thead><tr><th>Analyte</th><th>Claim</th><th>Spec</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${esc(r.name||'')}</td><td>${r.labelClaim==null?'—':esc(r.labelClaim)} ${esc(r.units||'')}</td><td>${esc(r.specText||'')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function allResults(){
+  const q = $('q').value.trim().toLowerCase();
+  const rows = [];
+  let total = 0;
+  for (const b of DATA.batches) for (const t of b.tests||[]) {
+    total++;
+    const line = [b.lotNo, b.product, t.name, t.result, t.srcFile].join(' ').toLowerCase();
+    if (q && !line.includes(q)) continue;
+    rows.push({b,t});
+  }
+  const title = q ? rows.length+' matching “'+esc($('q').value.trim())+'” of '+total : String(total);
+  return `<h1>All results (${title})</h1>
+    ${rows.length ? `<table><thead><tr><th>Lot</th><th>Product</th><th>Test</th><th>Result</th><th>% of claim</th><th>Source</th></tr></thead><tbody>
+      ${rows.map(({b,t}) => `<tr class="${claimClass(t.pctClaim)}">
+        <td>${esc(b.lotNo)}</td><td>${esc(b.product)}</td><td>${esc(t.name||'')}</td>
+        <td>${esc(t.result||'')} ${esc(t.units||'')}</td>
+        <td>${t.pctClaim==null||t.pctClaim===''?'—':esc(t.pctClaim)}</td>
+        <td>${esc(t.srcFile||'')}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="empty">No results in this export.</p>'}`;
+}
+
+function productsView(){
+  const q = $('q').value.trim().toLowerCase();
+  const rows = (DATA.products||[]).filter(p => !q || JSON.stringify(p).toLowerCase().includes(q));
+  return `<h1>Products (${rows.length})</h1>` + rows.map(p => `
+    <h2>${esc(p.name)}${p.aliases&&p.aliases.length?' — '+esc(p.aliases.join(', ')):''}</h2>
+    ${(p.analytical||[]).length ? specTable(p.analytical) : '<p class="empty">No catalog claims on file.</p>'}
+  `).join('');
+}
+
+function fmtDate(s){
+  if (!s) return '—';
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toISOString().slice(0,10);
+}
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function unzip(buf){
+  const u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0; i--) {
+    if (u8[i]===0x50 && u8[i+1]===0x4b && u8[i+2]===0x05 && u8[i+3]===0x06) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Not a zip file. Drop lot-trace-export.zip or the JSON inside it.');
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const nfiles = dv.getUint16(eocd + 10, true);
+  let cd = dv.getUint32(eocd + 16, true);
+  const files = {};
+  const dec = new TextDecoder();
+  for (let i = 0; i < nfiles; i++) {
+    if (dv.getUint32(cd, true) !== 0x02014b50) throw new Error('Could not read this zip.');
+    const method = dv.getUint16(cd + 10, true);
+    const compSize = dv.getUint32(cd + 20, true);
+    const nameLen = dv.getUint16(cd + 28, true);
+    const extraLen = dv.getUint16(cd + 30, true);
+    const commentLen = dv.getUint16(cd + 32, true);
+    const localOff = dv.getUint32(cd + 42, true);
+    const name = dec.decode(u8.slice(cd + 46, cd + 46 + nameLen));
+    const localName = dv.getUint16(localOff + 26, true);
+    const localExtra = dv.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + localName + localExtra;
+    const compressed = u8.slice(dataStart, dataStart + compSize);
+    let data;
+    if (method === 0) data = compressed;
+    else if (method === 8) data = await inflateRaw(compressed);
+    else throw new Error('Unsupported zip compression.');
+    files[name.replace(/\\/g,'/').split('/').pop()] = dec.decode(data);
+    cd += 46 + nameLen + extraLen + commentLen;
+  }
+  return files;
+}
+
+async function inflateRaw(u8){
+  if (typeof DecompressionStream !== 'function') throw new Error('This browser cannot unzip files. Open the zip first and drop lot-trace-full-export.json, or use Chrome/Edge.');
+  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// Same-folder only: index.html?zip=./lot-trace-export.zip  (http/https, not file://)
+(function autoOpen(){
+  const raw = new URLSearchParams(location.search).get('zip') || '';
+  if (!raw || raw.includes('..') || raw.includes('://') || raw.includes('\\') || raw.startsWith('/')) return;
+  if (!/^\.?\/?[A-Za-z0-9._-]+\.(zip|json)$/i.test(raw)) return;
+  const path = raw.startsWith('./') ? raw : './'+raw;
+  fetch(path).then(r => { if (!r.ok) throw new Error('Could not open '+path); return r.blob(); })
+    .then(b => loadFile(new File([b], path.split('/').pop())))
+    .catch(e => showErr(e.message));
+})();
+</script>
+</body>
+</html>
