@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.21';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5840,6 +5840,22 @@ document.addEventListener('click',()=>{ closeDownloadMenu(); closeRepDl(); });  
 /* =====================================================================
    FILE INPUT WIRING
    ===================================================================== */
+/* Snapshot / restore of the import already on screen. A failed drop or paste
+   must not replace RAW_BYTES, LAST_WB or the reports until the new data has
+   actually parsed into samples. v5.18.19 fixed this for paste; file load still
+   committed the bytes first, so dropping a non-ICP .xlsx left reports looking
+   fine (or blank) while "Raw data (Excel)" silently downloaded the junk file. */
+function snapshotImport(){
+  return {bytes:RAW_BYTES, ext:RAW_EXT, wb:LAST_WB, file:lastFile,
+          finalized:FINALIZED, unlocked:USER_UNLOCKED, notice:NOTICE_DISMISSED};
+}
+function restoreImport(prev){
+  RAW_BYTES=prev.bytes; RAW_EXT=prev.ext; LAST_WB=prev.wb; lastFile=prev.file;
+  FINALIZED=prev.finalized; USER_UNLOCKED=prev.unlocked; NOTICE_DISMISSED=prev.notice;
+  if(!prev.wb) return false;
+  try{ processWorkbook(prev.wb); render({preserveEdits:true}); return true; }
+  catch(e){ return false; }
+}
 function readFile(file){
   const status=document.getElementById('status');
   // only Excel is supported — reject ICP Expert worksheets and other formats with guidance
@@ -5853,14 +5869,19 @@ function readFile(file){
   status.textContent='Reading '+file.name+' …';
   const fr=new FileReader();
   fr.onload=e=>{
+    const prev=snapshotImport();
     try{
-      RAW_BYTES=e.target.result;                                   // keep original file bytes
-      RAW_EXT=(file.name.match(/\.[^.]+$/)||['.xlsx'])[0];          // original extension
-      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-      LAST_WB=wb;                                                  // enable re-processing on override/mode change
-      FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false; // fresh import starts unlocked
-      clearReportBodies();
+      const bytes=e.target.result;
+      const fileExt=(file.name.match(/\.[^.]+$/)||['.xlsx'])[0];
+      const wb=XLSX.read(new Uint8Array(bytes),{type:'array'});
       processWorkbook(wb);
+      if(!SAMPLES.length)
+        throw new Error('no sample rows were found in it \u2014 check that this is an ICP Expert Excel export with a Solution Label header');
+      // Only now is this a real import.
+      lastFile=file; LAST_WB=wb;
+      RAW_BYTES=bytes; RAW_EXT=fileExt;
+      FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false;    // fresh import starts unlocked
+      clearReportBodies();
       render({preserveEdits:false});
       const bad=SAMPLES.filter(s=>s.error).length;
       status.textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
@@ -5870,8 +5891,12 @@ function readFile(file){
       addLog('FILE_LOAD',`Processed "${file.name}" — ${SAMPLES.length} sample(s), ${bad} with errors (wavelength mode: ${mode})`,
         {file:file.name, batchDate:fmtDate(RAW_DATE), mode, sampleCount:SAMPLES.length,
          samples:SAMPLES.map(sampleLogData)});
-    }catch(err){status.textContent='❌ '+err.message;console.error(err);
-      addLog('ERROR','Failed to process "'+file.name+'": '+err.message);}
+    }catch(err){
+      const restored=restoreImport(prev);
+      status.textContent='❌ '+err.message+(restored?' — previous import restored':'');
+      console.error(err);
+      addLog('ERROR','Failed to process "'+file.name+'": '+err.message+(restored?' — previous import restored':''));
+    }
   };
   fr.readAsArrayBuffer(file);
 }
@@ -7403,11 +7428,10 @@ function loadPasted(){
      of one stray character built a one-cell workbook, threw on processing, and
      landed in catch -- leaving the real reports on screen while "Raw data
      (Excel)" silently downloaded a sheet containing nothing but that character. */
-  const prev={bytes:RAW_BYTES, ext:RAW_EXT, wb:LAST_WB, file:lastFile};
+  const prev=snapshotImport();
   try{
     const ws=XLSX.utils.aoa_to_sheet(aoa);
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
-    clearReportBodies();
     processWorkbook(wb);
     if(!SAMPLES.length)
       throw new Error('no sample rows were found in it \u2014 check that the header row was included in what you copied');
@@ -7415,6 +7439,7 @@ function loadPasted(){
     lastFile=null; LAST_WB=wb;
     RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
     FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false;    // fresh import starts unlocked
+    clearReportBodies();
     render({preserveEdits:false});
     const bad=SAMPLES.filter(s=>s.error).length;
     document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
@@ -7426,10 +7451,9 @@ function loadPasted(){
   }catch(err){
     // Put the previous import back. A bad paste must not quietly destroy the
     // raw-data export (or the reports) of the file that is already loaded.
-    RAW_BYTES=prev.bytes; RAW_EXT=prev.ext; LAST_WB=prev.wb; lastFile=prev.file;
-    if(prev.wb){ try{ processWorkbook(prev.wb); render({preserveEdits:false}); }catch(e){} }
+    const restored=restoreImport(prev);
     msg.textContent='Could not read that data: '+err.message;
-    addLog('ERROR','Paste parse failed: '+err.message+(prev.wb?' \u2014 previous import restored':''));
+    addLog('ERROR','Paste parse failed: '+err.message+(restored?' \u2014 previous import restored':''));
   }
 }
 
@@ -7460,15 +7484,15 @@ if(dropPasteCatcher){
     if(e.key==='Enter'||e.key===' ') e.stopPropagation();
   });
 }
-fileInput.addEventListener('change',e=>{if(e.target.files[0]){lastFile=e.target.files[0];readFile(lastFile);}});
+fileInput.addEventListener('change',e=>{if(e.target.files[0]) readFile(e.target.files[0]);});
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('dragging');}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('dragging');}));
-drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f){lastFile=f;readFile(f);}});
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f) readFile(f);});
 // allow dropping a new file anywhere once data is already loaded (the center target is hidden then)
 ['dragover'].forEach(ev=>document.addEventListener(ev,e=>{ if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')) e.preventDefault(); }));
 document.addEventListener('drop',e=>{ if(e.target.closest&&e.target.closest('#dropBig')) return;
   const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
-  if(f){ e.preventDefault(); lastFile=f; readFile(f); } });
+  if(f){ e.preventDefault(); readFile(f); } });
 // the faded background logo on the center drop target
 (function(){ const l=document.getElementById('dzLogo'); if(l&&typeof ICON_LOGO!=='undefined') l.src=ICON_LOGO; })();
 
