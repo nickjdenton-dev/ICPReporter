@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.22';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5301,8 +5301,12 @@ function syncFieldOverridesFromDom(i){
   const s=SAMPLES[i], rep=reportEls()[i]; if(!s||!rep) return;
   s.fieldOverrides=s.fieldOverrides||{};
 
-  // Sample Type / Batch in the header table — drives export filenames too.
-  const typeLbl=te('lblSampleType'), batchLbl=te('lblBatch');
+  // Sample Type / Batch in the header table — drives export filenames AND the
+  // tracker commit. Compare against T() (plain label text), never te() (the
+  // <span data-tpl> wrapper). cellPlainText strips tags, so matching the HTML
+  // string never hit, and a hand-corrected batch stayed on the instrument
+  // value when the tracker was written.
+  const typeLbl=T('lblSampleType'), batchLbl=T('lblBatch');
   rep.querySelectorAll('td').forEach(td=>{
     const plain=cellPlainText(td);
     if(!plain) return;
@@ -5365,7 +5369,7 @@ function sampleTypeCell(rep){
   if(!rep) return null;
   const tagged=rep.querySelector('td.rep-type-cell');
   if(tagged) return tagged;
-  const typeLbl=te('lblSampleType');
+  const typeLbl=T('lblSampleType');
   if(!typeLbl) return null;
   const needle=String(typeLbl).toLowerCase();
   return [...rep.querySelectorAll('td')].find(td=>{
@@ -5386,20 +5390,32 @@ function stripTypeErrorChrome(root){
     cell.style.cssText=St.td;
   });
 }
+// Typed into the Sample Type cell — only a real catalog hit is a resolution.
+// explicit:true so a typo cannot silently borrow another product's claims, and
+// so an unknown name cannot clear the warning / unlock Finalize.
+// Do not reprocess here: this also runs on the 120ms input debounce, and
+// rebuilding mid-keystroke would steal the caret and freeze a half-typed name.
+let PENDING_TYPE_REPROCESS=null;
 function acceptTypeFromCellEdit(s,i,typeName){
-  if(!s) return;
+  if(!s||!typeName) return false;
+  const r=resolveCatalogType(typeName, {explicit:true});
+  if(!(r.entry||r.custom||r.metals||r.key)) return false;
   s.error=null;
   DISMISSED_FUZZY.add(s.label);
-  if(typeName){
-    DISPLAY_OVERRIDES[s.label]=typeName;
-    s.type=typeName;
-    const r=resolveCatalogType(typeName);
-    if(r.entry||r.custom||r.metals)
-      TYPE_OVERRIDES[s.label]=String(r.suggestion||typeName).split('/')[0].trim();
-  }
+  DISPLAY_OVERRIDES[s.label]=typeName;
+  s.type=typeName;
+  TYPE_OVERRIDES[s.label]=String(r.suggestion||r.disp||typeName).split('/')[0].trim();
+  PENDING_TYPE_REPROCESS=s.label;
   const wrap=document.getElementById('reportWrap'+i);
   if(wrap) wrap.querySelectorAll('.rep-tools .rep-type-warn').forEach(n=>n.remove());
   stripTypeErrorChrome(reportEls()[i]);
+  return true;
+}
+function flushPendingTypeReprocess(){
+  if(!PENDING_TYPE_REPROCESS) return;
+  const label=PENDING_TYPE_REPROCESS;
+  PENDING_TYPE_REPROCESS=null;
+  rerenderResolvedType(label);
 }
 function clearResolvedTypeHighlights(){
   SAMPLES.forEach((s,i)=>{
@@ -5431,6 +5447,7 @@ function prepareReportsForExport(){
   if(document.activeElement && typeof document.activeElement.blur==='function')
     document.activeElement.blur();
   syncAllFieldOverrides();
+  flushPendingTypeReprocess();
   captureReportBodies();
 }
 function applyReportBodies(skipRestore){
@@ -5549,6 +5566,7 @@ document.addEventListener('focusout',e=>{
   const reps=reportEls();
   const i=reps.indexOf(rep); if(i<0) return;
   syncFieldOverridesFromDom(i);
+  flushPendingTypeReprocess();
 });
 
 /* ---- per-report settings popup (sample type + table visibility only) ---- */
