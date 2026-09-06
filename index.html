@@ -1439,8 +1439,13 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
       if(matchSet.has(t.toLowerCase())) return true;
       return prodKey && keyFn && keyFn(t)===prodKey;
     }
+    const chartedFn = global.trkRowIsCharted;
     rows.forEach(r => {
       if (!rowMatches(r[cols.SampleType])) return;
+      // Unticked tables (Qualification by default) still live in All Data;
+      // they must not plot. The hook was documented on sync() but pointsFor
+      // never consulted it, so existing tabs kept growing those series.
+      if (chartedFn && cols.Table !== undefined && !chartedFn(product, r[cols.Table])) return;
       const rowEl = String(r[cols.Element] == null ? '' : r[cols.Element]).trim();
       let target = rowEl.toLowerCase();
       if (!want[target]) {
@@ -3154,7 +3159,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.23';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3778,7 +3783,7 @@ function removeBuiltinAdmin(){
 const BACKUP_KEYS=['icpCatalogEdits','icpCustomSpecs','icpTypeMetals','icpCustomElements',
   'icpHiddenBuiltins','icpTemplate','icpUsers','icpActivityLog','icpLogRetentionDays',
   'icpTermsAccepted','icpLicense','icpSeededV1','icpMacroFixV1','icpTypeMetalsSeedV1','icpLogoDefaultV1',
-  'icpFailsafeDisabled','icpTrendBands'];
+  'icpFailsafeDisabled','icpTrendBands','icpQcTracked'];
 function backupJSON(){
   const data={app:'Spec. Reporter Pro', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
   BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data.store[k]=v; });
@@ -7709,6 +7714,7 @@ Object.defineProperty(typeof self!=='undefined'?self:window,'trkTabPick',{get:()
 (typeof self!=='undefined'?self:window).trkUnifiedClaimForElement=function(rows, cols, product, elementKey, matchNames){
   return unifiedClaimForProductElement(rows, cols, product, elementKey, matchNames);
 };
+(typeof self!=='undefined'?self:window).trkRowIsCharted=trkRowIsCharted;
 
 function catalogTypeName(key){
   const e=EFF.find(x=>x._aliases[0].key===key);
