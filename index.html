@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.24';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -7404,10 +7404,14 @@ function loadPasted(){
      landed in catch -- leaving the real reports on screen while "Raw data
      (Excel)" silently downloaded a sheet containing nothing but that character. */
   const prev={bytes:RAW_BYTES, ext:RAW_EXT, wb:LAST_WB, file:lastFile};
+  // processWorkbook rebuilds SAMPLES from scratch (empty wlOverrides /
+  // fieldOverrides / hiddenTables). Snapshot those BEFORE the paste parse so a
+  // failed paste that re-runs the previous workbook does not silently revert
+  // wavelength picks and hand-edited claims to catalog defaults.
+  const snap=SAMPLES.length ? snapshotReportState() : null;
   try{
     const ws=XLSX.utils.aoa_to_sheet(aoa);
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
-    clearReportBodies();
     processWorkbook(wb);
     if(!SAMPLES.length)
       throw new Error('no sample rows were found in it \u2014 check that the header row was included in what you copied');
@@ -7415,6 +7419,7 @@ function loadPasted(){
     lastFile=null; LAST_WB=wb;
     RAW_BYTES=XLSX.write(wb,{type:'array',bookType:'xlsx'}); RAW_EXT='.xlsx';
     FINALIZED=false; USER_UNLOCKED=false; NOTICE_DISMISSED=false;    // fresh import starts unlocked
+    clearReportBodies();
     render({preserveEdits:false});
     const bad=SAMPLES.filter(s=>s.error).length;
     document.getElementById('status').textContent=(bad?`⚠️ ${SAMPLES.length} sample(s) parsed, ${bad} with errors — see below. `
@@ -7427,7 +7432,13 @@ function loadPasted(){
     // Put the previous import back. A bad paste must not quietly destroy the
     // raw-data export (or the reports) of the file that is already loaded.
     RAW_BYTES=prev.bytes; RAW_EXT=prev.ext; LAST_WB=prev.wb; lastFile=prev.file;
-    if(prev.wb){ try{ processWorkbook(prev.wb); render({preserveEdits:false}); }catch(e){} }
+    if(prev.wb){
+      try{
+        processWorkbook(prev.wb);
+        restoreReportState(snap);
+        render({preserveEdits:false});
+      }catch(e){}
+    }
     msg.textContent='Could not read that data: '+err.message;
     addLog('ERROR','Paste parse failed: '+err.message+(prev.wb?' \u2014 previous import restored':''));
   }
