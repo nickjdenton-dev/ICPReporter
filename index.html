@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.25';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5899,8 +5899,14 @@ function restoreReportState(snap){
     const saved=snap[s.label]; if(!saved) return;
     s.wlOverrides={...saved.wlOverrides};
     s.fieldOverrides={...(saved.fieldOverrides||{})};
-    // Do not restore type/batch — those come from the label + TYPE_OVERRIDES.
-    // Restoring them undid "change sample type" (Evergreen Org from NaNO3 → Evergreen Org).
+    // Type comes from the label + TYPE_OVERRIDES / DISPLAY_OVERRIDES. Restoring
+    // saved.type undid "change sample type" (Evergreen Org from NaNO3 → Evergreen
+    // Org) because the snapshot ran while the DOM still showed the old name.
+    // Batch is independent of that path: processWorkbook always re-parses it from
+    // the instrument label, so a hand-edit must be put back or a wavelength-mode
+    // change / catalog save silently reverts it — and the next tracker commit
+    // writes the original (wrong) batch.
+    if(saved.batch!==undefined) s.batch=saved.batch;
     const typeChanged = TYPE_OVERRIDES[s.label]!==undefined || (saved.type && s.type && saved.type!==s.type);
     if(!typeChanged) s.hiddenTables={...saved.hiddenTables};
     recomputeSample(s);
