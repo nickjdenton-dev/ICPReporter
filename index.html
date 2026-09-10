@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.21';   // bump on each release
+const APP_VERSION='v5.18.22';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -7708,7 +7708,32 @@ function importLibrary(ev){
 
 let EDIT_CONTEXT=null;   // {kind:'builtin'|'custom', key, name, specs} while editing
 
-function refreshCatalog(){ rebuildEff(); renderCatalogList(); renderAddForm(); reprocessLast({preserveReportState:true}); }
+// A catalog save is authoritative for label claims and qualification limits.
+ // Clear only those cached report-cell overrides for the affected product before
+ // reprocessing; measured values and any other report text stay untouched.
+function clearSpecOverridesForCatalogKey(key){
+  if(!key) return;
+  const target=norm(key);
+  SAMPLES.forEach((sample,i)=>{
+    const picked=sampleCatalogPick(sample);
+    const resolved=resolveCatalogType(picked,{explicit:TYPE_OVERRIDES[sample.label]!==undefined});
+    if(resolved.key!==target) return;
+    const overrides=sample.fieldOverrides||{};
+    Object.keys(overrides).forEach(k=>{
+      if(/:claim$/.test(k) || /^metal:[^:]+:limit$/.test(k)) delete overrides[k];
+    });
+    sample.fieldOverrides=overrides;
+    delete REPORT_BODY_CACHE[reportBodyKey(sample,i)];
+  });
+}
+function refreshCatalog(opts){
+  opts=opts||{};
+  rebuildEff();
+  if(opts.catalogKey) clearSpecOverridesForCatalogKey(opts.catalogKey);
+  renderCatalogList();
+  renderAddForm();
+  reprocessLast({preserveReportState:true});
+}
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 (typeof self!=='undefined'?self:window).trkIsDistinctProductVariant=isDistinctProductVariant;
 (typeof self!=='undefined'?self:window).trkMergeCanon=TRK_MERGE_CANON;
@@ -8030,8 +8055,8 @@ function _saveSpec(){
     {names:dispName, macro:macroSpecs, micro:microSpecs, metals:metalSpecs});
   EDIT_CONTEXT=null; PREFILL_TYPE=null;
   if(PENDING_TYPE_LABEL!==null){ TYPE_OVERRIDES[PENDING_TYPE_LABEL]=dispName.split('/')[0].trim(); PENDING_TYPE_LABEL=null; closeCatalog(); }
-  refreshCatalog();
-  const msg=document.getElementById('saveMsg'); if(msg) msg.textContent='✅ Saved.';
+  refreshCatalog({catalogKey:key});
+  const msg=document.getElementById('saveMsg'); if(msg) msg.textContent='✅ Saved — affected report claims refreshed.';
 }
 
 // Pull stored analyte fields into the spec-row editor (compound -> name/form when needed).
