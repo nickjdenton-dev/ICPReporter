@@ -1049,11 +1049,25 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         applyValues(r, values);
       },
       appendRow: function (values) {
-        maxRow += 1;
-        const r = { n: maxRow, attrs: ' r="' + maxRow + '"', xml: '', cells: {}, dirty: true };
+        // Some Excel templates contain hundreds of blank, formatted <row> tags.
+        // Those are not tracker data. Reuse the first blank row after the last
+        // populated record instead of jumping past the template's last row.
+        const hasValue = r => Object.keys(r.cells).some(k => String(r.cells[k].v == null ? '' : r.cells[k].v).trim() !== '');
+        let lastUsed = 1;
+        rows.forEach(r => { if (r.n > 1 && hasValue(r)) lastUsed = Math.max(lastUsed, r.n); });
+        const next = lastUsed + 1;
+        let r = rows.find(x => x.n === next && !hasValue(x));
+        if (r) {
+          applyValues(r, values);
+          return r.n;
+        }
+        r = { n: next, attrs: ' r="' + next + '"', xml: '', cells: {}, dirty: true };
         applyValues(r, values);
-        rows.push(r);
-        dataRows.push(r);
+        const rowAt = rows.findIndex(x => x.n > next);
+        if (rowAt < 0) rows.push(r); else rows.splice(rowAt, 0, r);
+        const dataAt = dataRows.findIndex(x => x.n > next);
+        if (dataAt < 0) dataRows.push(r); else dataRows.splice(dataAt, 0, r);
+        if (next > maxRow) maxRow = next;
         return r.n;
       },
       // only used when starting a brand new sheet
@@ -3154,7 +3168,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.22';   // bump on each release
+const APP_VERSION='v5.18.23';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -7127,6 +7141,8 @@ async function commitToTracker(){
   const picked=trackerCommitPreflight(msg);
   if(!picked) return;
   const btn=document.getElementById('trkCommit'); btn.disabled=true;
+  trkProgressShow(true);
+  trkProgressUpdate(2, 'Starting tracker commit…');
   msg.style.color='#0f4c81'; msg.textContent='Committing…';
   try{
     const perm={mode:'readwrite'};
@@ -7137,10 +7153,13 @@ async function commitToTracker(){
     if(!(await TRACKER_HANDLE.getFile()).size) await createTrackerWorkbook(TRACKER_HANDLE,TRK_HEADERS);
     let added=0, updated=0, done=false, retries=0, charted=[], extended=[];
     PENDING_ANALYTE_NOTICE=[];
+    await trkYield();
     for(let attempt=0; attempt<5 && !done; attempt++){
+      trkProgressUpdate(8, 'Reading tracker workbook…');
       const st=await withFreshHandle(TRACKER_HANDLE, ()=>readTrackerState(TRACKER_HANDLE),
-        ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+        ()=>{ trkProgressUpdate(8, 'Waiting for the file to finish syncing…'); msg.textContent='Waiting for the file to finish syncing…'; });
       const doc=st.doc;
+      await trkYield();
       let headers=st.headers, colFor;
       if(headers){ colFor=trackerColMap(headers); }
       else{ headers=TRK_HEADERS.slice(); colFor={}; headers.forEach((h,i)=>colFor[h]=i); doc.setHeaders(headers); }
@@ -7166,18 +7185,31 @@ async function commitToTracker(){
           }
         });
       });
+      trkProgressUpdate(22, 'Updating tracker data…');
+      await trkYield();
       normalizeTrackerElements(doc,colFor);
       normalizeTrackerClaims(doc,colFor);
       msg.textContent='Building charts…';
+      trkProgressUpdate(30, 'Building charts…');
+      await trkYield();
       const sync=await QcCharts.sync(doc,
         productsFromTrackerData(doc.dataRows(), colFor),
-        colFor, doc.dataRows(), loadBands());
+        colFor, doc.dataRows(), loadBands(), {
+          yieldToMain: trkYield,
+          onProgress: ({done,total,label})=>{
+            const pct=30+(total?((done/total)*55):55);
+            trkProgressUpdate(pct, 'Charting '+(label||'product')+' ('+done+' of '+total+')…');
+            msg.textContent='Building charts… '+done+' / '+total;
+          }
+        });
       charted=sync.created;
       extended=sync.extended.map(e=>e.sheet+' (+'+e.added.join(', ')+')');
       sync.created.forEach(s=>addLog('TRACKER','Generated a chart tab for "'+s+'"'));
       sync.extended.forEach(e=>addLog('TRACKER','Added '+e.added.length+' chart(s) to the "'+e.sheet+'" tab',{analytes:e.added}));
       sync.skipped.forEach(s=>addLog('TRACKER','No chart tab for "'+(s.product||'')+'" — '+s.reason));
+      trkProgressUpdate(88, 'Saving workbook…');
       msg.textContent='Saving…';
+      await trkYield();
       // did anyone else write while we were building? if so, redo on their version
       const check=await TRACKER_HANDLE.getFile();
       if(check.size!==st.size){
@@ -7187,7 +7219,8 @@ async function commitToTracker(){
       }
       alphabetizeTrackerTabs(doc);
       await writeTrackerWorkbook(TRACKER_HANDLE, doc,
-        ()=>{ msg.textContent='Waiting for the file to finish syncing…'; });
+        ()=>{ trkProgressUpdate(92, 'Waiting for the file to finish syncing…'); msg.textContent='Waiting for the file to finish syncing…'; });
+      trkProgressUpdate(100, 'Done');
       done=true;
     }
     if(!done) throw new Error('The tracker file changed on every attempt. If it lives in OneDrive or '
@@ -7204,8 +7237,10 @@ async function commitToTracker(){
     const m=trackerErrorText(e);
     msg.style.color='#a33'; msg.textContent='Commit failed: '+m;
     addLog('ERROR','Tracker commit failed: '+m);
+  } finally {
+    btn.disabled=false;
+    setTimeout(()=>trkProgressShow(false),1200);
   }
-  btn.disabled=false;
 }
 /* ---- one-time migration: copy an existing tracker's history into the new file ---- */
 async function importTrackerHistory(){
