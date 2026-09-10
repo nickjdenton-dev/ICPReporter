@@ -2670,7 +2670,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
   .bug-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
   #bugTurnstile{margin-top:12px;min-height:65px}
 </style>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onerror="handleBugTurnstileUnavailable()"></script>
 </head>
 <body>
 
@@ -3394,14 +3394,22 @@ async function exportLog(){
 const BUG_ENDPOINT='https://formsubmit.co/ajax/support@specreport.org';
 const TURNSTILE_SITE_KEY='0x4AAAAAAEblyz0kVKYGx71F';   // Cloudflare Turnstile production sitekey
 const BUG_MSG_MAX=45000;   // keep under common form-backend body limits
-let bugTurnstileId=null, bugOpenedAt=0, lastBugText='';
+let bugTurnstileId=null, bugOpenedAt=0, lastBugText='', bugTurnstileUnavailable=false;
 function onBugTurnstileReady(token){
   const btn=document.getElementById('bugSendBtn');
   if(btn) btn.disabled=!token;
 }
+function handleBugTurnstileUnavailable(){
+  bugTurnstileUnavailable=true;
+  const btn=document.getElementById('bugSendBtn');
+  const msg=document.getElementById('bugMsg');
+  if(btn) btn.disabled=false;
+  if(msg) msg.textContent='Verification service is unavailable. You can still send the report.';
+}
 function resetBugTurnstile(){
   const el=document.getElementById('bugTurnstile');
-  if(!el||!window.turnstile||!TURNSTILE_SITE_KEY) return;
+  if(!el||!TURNSTILE_SITE_KEY) return;
+  if(!window.turnstile){ handleBugTurnstileUnavailable(); return; }
   if(bugTurnstileId!=null){ try{turnstile.remove(bugTurnstileId);}catch(_){} bugTurnstileId=null; }
   el.innerHTML='';
   const btn=document.getElementById('bugSendBtn');
@@ -3410,7 +3418,7 @@ function resetBugTurnstile(){
     sitekey:TURNSTILE_SITE_KEY, theme:'light',
     callback:onBugTurnstileReady,
     'expired-callback':()=>onBugTurnstileReady(''),
-    'error-callback':()=>onBugTurnstileReady('')
+    'error-callback':()=>handleBugTurnstileUnavailable()
   });
 }
 function openBug(){
@@ -3419,6 +3427,7 @@ function openBug(){
   document.getElementById('bugMsg').textContent='';
   const dl=document.getElementById('bugDlBtn'); if(dl) dl.style.display='none';
   lastBugText='';
+  bugTurnstileUnavailable=false;
   document.getElementById('bugModal').classList.add('open');
   bugOpenedAt=Date.now();
   const btn=document.getElementById('bugSendBtn');
@@ -3426,7 +3435,10 @@ function openBug(){
   setTimeout(()=>{
     document.getElementById('bugText').focus();
     if(window.turnstile) resetBugTurnstile();
-    else window._bugTurnstilePending=true;
+    else {
+      window._bugTurnstilePending=true;
+      setTimeout(()=>{ if(!window.turnstile) handleBugTurnstileUnavailable(); },5000);
+    }
   },50);
 }
 function closeBug(){
@@ -3508,8 +3520,7 @@ async function submitBug(){
   if(document.getElementById('bugHp').value) return;   // honeypot — silent for bots
   if(!comments){ msg.textContent='⚠️ Please describe the issue first.'; return; }
   if(Date.now()-bugOpenedAt<1500){ msg.textContent='Please wait a moment before sending.'; return; }
-  if(TURNSTILE_SITE_KEY){
-    if(!window.turnstile||bugTurnstileId==null){ msg.textContent='Captcha still loading — please wait.'; return; }
+  if(TURNSTILE_SITE_KEY && window.turnstile && bugTurnstileId!=null && !bugTurnstileUnavailable){
     const turnstileToken=turnstile.getResponse(bugTurnstileId)||'';
     if(!turnstileToken){ msg.textContent='Please complete the captcha first.'; return; }
   }
@@ -7619,7 +7630,7 @@ loadTrackerHandle();
 // One-time: give pre-existing sample types the default heavy metals so their reports
 // keep the Heavy Metal table (new types start with whatever the user defines).
 (function seedTypeMetals(){
-  const FLAG='icpTypeMetalsSeedV1';
+  const FLAG='icpTypeMetalsSeedV2';
   if(localStorage.getItem(FLAG)) return;
   const def=DEFAULT_TEMPLATE.heavyMetals;
   const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals();
@@ -7836,7 +7847,11 @@ function renderAddForm(){
   const ec=EDIT_CONTEXT;
   const existing=allSampleTypes().map(t=>t.disp);
   const opts=existing.map(n=>`<option>${n}</option>`).join('');
-  const specHTML=(editing?ec.specs:(PREFILL_TYPE?PREFILL_TYPE.specs:[null])).map(sp=>specRowHTML(sp)).join('');
+  // New types receive the standard qualification panel by default. It can be
+  // edited or removed deliberately, while a missing configuration never creates
+  // a silently empty report section.
+  const defaultQualSpecs=DEFAULT_TEMPLATE.heavyMetals.map(m=>({el:m.el, name:m.name, claim:m.limit, table:'heavy', wl:'optimum'}));
+  const specHTML=(editing?ec.specs:(PREFILL_TYPE?PREFILL_TYPE.specs:[null].concat(defaultQualSpecs))).map(sp=>specRowHTML(sp)).join('');
   const note='Assign each analyte to Macro, Micro, or Qualification. Qualification rows use the limit column and report a yes/no call. (P→P₂O₅ and K→K₂O auto-route to Macro.)';
   // Which of this type's tables feed QC trend charts. Qualification is a yes/no
   // call against a limit, so it has no trend to plot and defaults OFF.
