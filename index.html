@@ -3154,7 +3154,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.20';   // bump on each release
+const APP_VERSION='v5.18.26';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -3778,7 +3778,7 @@ function removeBuiltinAdmin(){
 const BACKUP_KEYS=['icpCatalogEdits','icpCustomSpecs','icpTypeMetals','icpCustomElements',
   'icpHiddenBuiltins','icpTemplate','icpUsers','icpActivityLog','icpLogRetentionDays',
   'icpTermsAccepted','icpLicense','icpSeededV1','icpMacroFixV1','icpTypeMetalsSeedV1','icpLogoDefaultV1',
-  'icpFailsafeDisabled','icpTrendBands'];
+  'icpFailsafeDisabled','icpTrendBands','icpQcTracked'];
 function backupJSON(){
   const data={app:'Spec. Reporter Pro', kind:'full-backup', version:APP_VERSION, exported:new Date().toISOString(), store:{}};
   BACKUP_KEYS.forEach(k=>{ const v=localStorage.getItem(k); if(v!==null) data.store[k]=v; });
@@ -7666,7 +7666,7 @@ function closeCatalog(){ PREFILL_TYPE=null; document.getElementById('catalogModa
 function exportLibrary(){
   const data={app:'Spec. Reporter Pro', kind:'sample-type-library', version:APP_VERSION,
               exported:new Date().toISOString(), edits:loadEdits(), custom:loadCustom(), typeMetals:loadTypeMetals(),
-              customElements:loadCustomEls()};
+              customElements:loadCustomEls(), qcTrack:loadQcTrack()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download='Spec. Reporter Pro Sample Types.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
@@ -7681,12 +7681,13 @@ function importLibrary(ev){
       if(!confirm('This doesn’t look like an Spec. Reporter Pro sample-type library. Import anyway?')) return;
     }
     requireAdmin('import sample types', ()=>{
-      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls();
+      const edits=loadEdits(), custom=loadCustom(), tm=loadTypeMetals(), ce=loadCustomEls(), qc=loadQcTrack();
       Object.assign(edits, data.edits||{});                       // merge (imported wins on conflict)
       Object.keys(data.custom||{}).forEach(k=>{ custom[k]=data.custom[k]; });
       Object.keys(data.typeMetals||{}).forEach(k=>{ tm[k]=data.typeMetals[k]; });
       Object.keys(data.customElements||{}).forEach(k=>{ ce[k]=data.customElements[k]; });
-      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm); saveCustomEls(ce);
+      Object.keys(data.qcTrack||{}).forEach(k=>{ qc[k]=data.qcTrack[k]; });
+      saveEdits(edits); saveCustom(custom); saveTypeMetals(tm); saveCustomEls(ce); saveQcTrack(qc);
       addLog('CATALOG',`Imported sample-type library from "${f.name}"`);
       refreshCatalog();
       alert('Sample types imported successfully.');
