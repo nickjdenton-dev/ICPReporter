@@ -1053,14 +1053,14 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
         // Those are not tracker data. Reuse the first blank row after the last
         // populated record instead of jumping past the template's last row.
         const hasValue = r => Object.keys(r.cells).some(k => String(r.cells[k].v == null ? '' : r.cells[k].v).trim() !== '');
-        let lastUsed = 1;
-        rows.forEach(r => { if (r.n > 1 && hasValue(r)) lastUsed = Math.max(lastUsed, r.n); });
-        const next = lastUsed + 1;
-        let r = rows.find(x => x.n === next && !hasValue(x));
+        // Reuse the first blank physical data row. This also repairs trackers
+        // already affected by the old "append after the template" behavior.
+        let r = rows.find(x => x.n > 1 && !hasValue(x));
         if (r) {
           applyValues(r, values);
           return r.n;
         }
+        const next = maxRow + 1;
         r = { n: next, attrs: ' r="' + next + '"', xml: '', cells: {}, dirty: true };
         applyValues(r, values);
         const rowAt = rows.findIndex(x => x.n > next);
@@ -3168,7 +3168,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.23';   // bump on each release
+const APP_VERSION='v5.18.24';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
