@@ -3168,7 +3168,7 @@ const ICON_LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABcc
 
 <script>
 const APP_NAME='Spec. Reporter Pro';
-const APP_VERSION='v5.18.24';   // bump on each release
+const APP_VERSION='v5.18.25';   // bump on each release
 /* Inline SVG icons — no emoji anywhere in the UI (lab software should look like
    instrument software, not chat). Each is paired with a title= tooltip. */
 const ICO_PENCIL='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 1.8l3 3L5.5 13.5 1.8 14.2l.7-3.7z"/><path d="M10 3l3 3"/></svg>';
@@ -5523,7 +5523,11 @@ function render(opts){
   opts=opts||{};
   const preserve=opts.preserveEdits!==false;
   const skipRestore=new Set(opts.skipRestore||[]);
-  if(SAMPLES.length && reportEls().length) syncAllFieldOverrides();
+  // captureReportBodies() already syncs from the live DOM. Doing that here when
+  // preserveEdits is false stamped the OUTGOING reports onto the incoming
+  // samples: a second file drop, a catalog-claim save, or a wavelength-mode
+  // switch copied the old measured/claim cells as fieldOverrides and the new
+  // numbers never appeared.
   if(preserve && SAMPLES.length && reportEls().length) captureReportBodies();
   const box=document.getElementById('reports');
   const empty=!SAMPLES.length;
@@ -5904,8 +5908,9 @@ function readFile(file){
 let lastFile=null, LAST_WB=null;
 // Keep per-report wavelength picks and table visibility when re-parsing after a
 // sample-matrix or type change — only the analyte definitions should refresh.
-function snapshotReportState(){
-  syncAllFieldOverrides();
+function snapshotReportState(opts){
+  opts=opts||{};
+  if(opts.fromDom!==false) syncAllFieldOverrides();
   const snap={};
   SAMPLES.forEach(s=>{
     snap[s.label]={
@@ -5936,7 +5941,7 @@ function restoreReportState(snap){
 function reprocessLast(opts){
   opts=opts||{};
   if(LAST_WB){
-    const snap = opts.preserveReportState!==false ? snapshotReportState() : null;
+    const snap = opts.preserveReportState!==false ? snapshotReportState({fromDom:opts.fromDom}) : null;
     clearReportBodies();
     processWorkbook(LAST_WB);
     restoreReportState(snap);
@@ -7764,10 +7769,16 @@ function clearSpecOverridesForCatalogKey(key){
 function refreshCatalog(opts){
   opts=opts||{};
   rebuildEff();
-  if(opts.catalogKey) clearSpecOverridesForCatalogKey(opts.catalogKey);
+  if(opts.catalogKey){
+    // Capture measured/type/batch edits first, then drop claim/limit overrides
+    // so the catalog save is what open reports show. Reprocess must not sync
+    // from the outgoing DOM or those stale claim cells come right back.
+    syncAllFieldOverrides();
+    clearSpecOverridesForCatalogKey(opts.catalogKey);
+  }
   renderCatalogList();
   renderAddForm();
-  reprocessLast({preserveReportState:true});
+  reprocessLast({preserveReportState:true, fromDom:opts.catalogKey?false:undefined});
 }
 (typeof self!=='undefined'?self:window).trkCatalogKeyForType=trackerCatalogKey;
 (typeof self!=='undefined'?self:window).trkIsDistinctProductVariant=isDistinctProductVariant;
